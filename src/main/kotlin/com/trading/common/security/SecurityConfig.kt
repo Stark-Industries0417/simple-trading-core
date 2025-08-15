@@ -39,6 +39,7 @@ class SecurityConfig(
                 authorize
                     .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                     .requestMatchers("/h2-console/**").permitAll()
+                    .requestMatchers("/api/test/**").permitAll()
                     .anyRequest().authenticated()
             }
             .addFilterBefore(traceIdFilter, UsernamePasswordAuthenticationFilter::class.java)

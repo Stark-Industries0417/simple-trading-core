@@ -35,6 +35,8 @@ market:
     update-interval-ms: 100
     default-volatility: 0.02
     default-initial-price: 100.00
+    listener:
+      enabled: true
 
 trading:
   market-data:
