@@ -2,74 +2,73 @@ import org.springframework.boot.gradle.plugin.SpringBootPlugin
 
 plugins {
     kotlin("jvm") version "2.0.0"
-    kotlin("plugin.spring") version "2.0.0" apply false
-    id("org.springframework.boot") version "3.2.0" apply false
+    kotlin("plugin.spring") version "2.0.0"
+    id("org.springframework.boot") version "3.2.0"
     id("io.spring.dependency-management") version "1.1.4"
-    id("org.asciidoctor.jvm.convert") version "3.3.2" apply false
-    id("io.gitlab.arturbosch.detekt") version "1.23.4" apply false
-    id("org.owasp.dependencycheck") version "8.4.0" apply false
 }
 
-group = "sk.moon"
-version = "1.0-SNAPSHOT"
+group = "com.trading"
+version = "1.0.0-SNAPSHOT"
 
-allprojects {
-    repositories {
-        mavenCentral()
+repositories {
+    mavenCentral()
+}
+
+dependencyManagement {
+    imports {
+        mavenBom(SpringBootPlugin.BOM_COORDINATES)
     }
 }
 
-subprojects {
-    apply(plugin = "org.jetbrains.kotlin.jvm")
-    apply(plugin = "org.jetbrains.kotlin.plugin.spring")
-    apply(plugin = "io.spring.dependency-management")
-    apply(plugin = "io.gitlab.arturbosch.detekt")
-    apply(plugin = "org.owasp.dependencycheck")
-    apply(plugin = "jacoco")
+dependencies {
+    // Spring Boot Starters
+    implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    implementation("org.springframework.boot:spring-boot-starter-validation")
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("org.springframework.boot:spring-boot-starter-aop")
+    implementation("org.springframework.boot:spring-boot-starter-security")
 
-    dependencyManagement {
-        imports {
-            mavenBom(SpringBootPlugin.BOM_COORDINATES)
-        }
-    }
+    // Kotlin
+    implementation("org.jetbrains.kotlin:kotlin-reflect")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
 
-    dependencies {
-        implementation("org.jetbrains.kotlin:kotlin-reflect")
-        implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
-        implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
-        
-        testImplementation("org.springframework.boot:spring-boot-starter-test")
-        testImplementation("io.mockk:mockk:1.13.8")
-        testImplementation("org.assertj:assertj-core")
-        testImplementation("org.junit.jupiter:junit-jupiter")
-        testImplementation("org.testcontainers:junit-jupiter")
-        testImplementation("org.testcontainers:postgresql")
-        testImplementation("org.springframework.restdocs:spring-restdocs-mockmvc")
-        testImplementation("org.springframework.restdocs:spring-restdocs-asciidoctor")
-    }
+    // Database
+    runtimeOnly("com.h2database:h2")
+    runtimeOnly("mysql:mysql-connector-java:8.0.33")
 
-    tasks.withType<Test> {
-        useJUnitPlatform()
-    }
+    // Configuration
+    annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
 
-    kotlin {
-        jvmToolchain(17)
-    }
+    // Logging
+    implementation("net.logstash.logback:logstash-logback-encoder:7.4")
+    
+    // UUID v7 Generation
+    implementation("com.github.f4b6a3:uuid-creator:5.3.2")
+    
+    // Guava for ThreadFactoryBuilder
+    implementation("com.google.guava:guava:32.1.3-jre")
 
-    // Spring REST Docs 설정
-    val snippetsDir by extra { file("build/generated-snippets") }
+    // Test
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("io.mockk:mockk:1.13.8")
+    testImplementation("org.assertj:assertj-core")
+}
 
-    // 모든 프로젝트에 Asciidoctor 설정 적용
-    configure(subprojects.filter { it.name in listOf("order-module", "matching-module", "account-module") }) {
-        apply(plugin = "org.asciidoctor.jvm.convert")
+kotlin {
+    jvmToolchain(17)
+}
 
-        tasks.withType<org.asciidoctor.gradle.jvm.AsciidoctorTask> {
-            inputs.dir(snippetsDir)
-            dependsOn(tasks.test)
-        }
-    }
+tasks.withType<Test> {
+    useJUnitPlatform()
+}
 
-    tasks.withType<Test> {
-        outputs.dir(snippetsDir)
-    }
+springBoot {
+    mainClass.set("com.trading.SimpleTradingCoreApplicationKt")
+}
+
+tasks.bootJar {
+    enabled = true
+    archiveBaseName.set("simple-trading-core")
 }

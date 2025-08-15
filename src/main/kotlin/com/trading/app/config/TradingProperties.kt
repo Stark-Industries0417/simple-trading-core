@@ -1,9 +1,9 @@
-package com.trading.common.config
+package com.trading.app.config
 import org.springframework.boot.context.properties.ConfigurationProperties
-import org.springframework.boot.context.properties.bind.ConstructorBinding
 import java.math.BigDecimal
+
 @ConfigurationProperties(prefix = "trading")
-data class TradingProperties @ConstructorBinding constructor(
+data class TradingProperties(
     val marketData: MarketDataProperties = MarketDataProperties(),
     val matching: MatchingProperties = MatchingProperties(),
     val event: EventProperties = EventProperties(),

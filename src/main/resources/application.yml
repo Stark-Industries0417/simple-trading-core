@@ -1,0 +1,104 @@
+spring:
+  application:
+    name: simple-trading-core
+
+  profiles:
+    active: local
+
+  datasource:
+    url: jdbc:h2:mem:testdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+# Market Data Generator 설정
+market:
+  data:
+    enabled: true
+    symbols:
+      - AAPL
+      - GOOGL  
+      - MSFT
+    update-interval-ms: 100
+    default-volatility: 0.02
+    default-initial-price: 100.00
+
+trading:
+  market-data:
+    generator:
+      enabled: true
+      symbols:
+        - AAPL
+        - GOOGL
+        - MSFT
+      interval-ms: 100
+      price-volatility: 0.02
+      initial-price: 100.00
+
+  matching:
+    engine:
+      enabled: false
+      processing-mode: SINGLE_THREAD
+      batch-size: 100
+      max-orders-per-symbol: 10000
+
+  event:
+    async:
+      enabled: true
+      core-pool-size: 2
+      max-pool-size: 10
+      queue-capacity: 500
+
+  account:
+    initial-cash-balance: 100000.00
+    use-pessimistic-lock: true
+
+
+  tracing:
+    enabled: true
+    mdc-keys:
+      - traceId
+      - userId
+      - orderId
+
+
+logging:
+  level:
+    root: INFO
+    com.trading: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG
+
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [%X{traceId}] - %msg%n"
+
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,env,configprops
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+
+info:
+  app:
+    name: ${spring.application.name}
+    version: '@project.version@'
+    description: Simple Trading Core - Modular Monolith Architecture
+    philosophy: "Simple is Best"

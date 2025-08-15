@@ -1,6 +1,8 @@
 package com.trading.common.util
 import com.github.f4b6a3.uuid.UuidCreator
 import org.springframework.stereotype.Component
+
+
 @Component
 class UUIDv7Generator {
 
