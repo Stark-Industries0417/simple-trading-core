@@ -30,13 +30,23 @@ market:
     enabled: true
     symbols:
       - AAPL
-      - GOOGL  
+      - GOOGL
       - MSFT
     update-interval-ms: 100
+    startup-delay: PT1S
     default-volatility: 0.02
     default-initial-price: 100.00
-    listener:
-      enabled: true
+    min-price: 0.01
+    max-price: 100000.00
+    initial-prices:
+      AAPL: 150.00
+      GOOGL: 2800.00
+      MSFT: 380.00
+
+    symbol-volatility:
+      AAPL: 0.018
+      GOOGL: 0.025
+      MSFT: 0.020
 
 trading:
   market-data:
@@ -67,7 +77,6 @@ trading:
   account:
     initial-cash-balance: 100000.00
     use-pessimistic-lock: true
-
 
   tracing:
     enabled: true
