@@ -1,9 +1,13 @@
 package com.trading.common.dto
+
+import com.trading.order.domain.Order
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotNull
 import jakarta.validation.constraints.Positive
 import java.math.BigDecimal
 import java.time.Instant
+
+
 data class OrderDTO(
     @field:NotBlank
     val orderId: String,
@@ -12,7 +16,7 @@ data class OrderDTO(
     val userId: String,
 
     @field:NotBlank
-    val ticker: String,
+    val symbol: String,
 
     @field:NotNull
     val orderType: OrderType,
@@ -27,7 +31,36 @@ data class OrderDTO(
     val price: BigDecimal?,
 
     @field:NotNull
-    val timestamp: Instant,
+    val createdAt: Instant,
 
-    val status: OrderStatus = OrderStatus.PENDING
-)
+    @field:NotNull
+    val updatedAt: Instant,
+
+    @field:NotNull
+    val status: OrderStatus = OrderStatus.PENDING,
+
+    @field:NotBlank
+    val traceId: String,
+
+    val version: Long = 0
+) {
+    companion object {
+
+        fun from(order: Order): OrderDTO {
+            return OrderDTO(
+                orderId = order.id,
+                userId = order.userId,
+                symbol = order.symbol,
+                orderType = order.orderType,
+                side = order.side,
+                quantity = order.quantity,
+                price = order.price,
+                createdAt = order.createdAt,
+                updatedAt = order.updatedAt,
+                status = order.status,
+                traceId = order.traceId,
+                version = order.version
+            )
+        }
+    }
+}

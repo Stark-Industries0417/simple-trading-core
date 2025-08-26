@@ -5,11 +5,18 @@ spring:
   profiles:
     active: local
 
+  # 데이터소스 설정
   datasource:
-    url: jdbc:h2:mem:testdb
+    url: jdbc:h2:mem:trading_db;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     driver-class-name: org.h2.Driver
     username: sa
     password:
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 20000
+      idle-timeout: 300000
+      pool-name: TradingHikariCP
 
   jpa:
     hibernate:
@@ -18,13 +25,40 @@ spring:
     properties:
       hibernate:
         format_sql: true
+        use_sql_comments: true
+        jdbc:
+          batch_size: 20
+          batch_versioned_data: true
+        order_inserts: true
+        order_updates: true
 
   h2:
     console:
       enabled: true
       path: /h2-console
+      settings:
+        web-allow-others: false
 
-# Market Data Generator 설정
+  # 비동기 태스크 설정 (Spring Events용)
+  task:
+    execution:
+      pool:
+        core-size: 4
+        max-size: 10
+        queue-capacity: 500
+        keep-alive: 60s
+      thread-name-prefix: async-executor-
+
+  # Jackson 설정
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+      write-durations-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+    time-zone: Asia/Seoul
+
+# Market Data Generator 설정 (MarketDataConfig.kt와 매칭)
 market:
   data:
     enabled: true
@@ -32,84 +66,173 @@ market:
       - AAPL
       - GOOGL
       - MSFT
+      - TSLA
+      - AMZN
+
     update-interval-ms: 100
-    startup-delay: PT1S
+    startup-delay: PT1S  # ISO-8601 Duration format
+
+    # 기본 설정
     default-volatility: 0.02
     default-initial-price: 100.00
     min-price: 0.01
     max-price: 100000.00
+
+    # 심볼별 초기 가격
     initial-prices:
       AAPL: 150.00
       GOOGL: 2800.00
       MSFT: 380.00
+      TSLA: 250.00
+      AMZN: 180.00
 
+    # 심볼별 변동성
     symbol-volatility:
       AAPL: 0.018
       GOOGL: 0.025
       MSFT: 0.020
+      TSLA: 0.030
+      AMZN: 0.022
 
+    # 리스너 설정 (테스트용)
+    listener:
+      enabled: true  # MarketDataEventListener 활성화
+
+# Trading 도메인 설정 (Order Module용)
 trading:
-  market-data:
-    generator:
-      enabled: true
-      symbols:
-        - AAPL
-        - GOOGL
-        - MSFT
-      interval-ms: 100
-      price-volatility: 0.02
-      initial-price: 100.00
+  # 주문 모듈 설정
+  order:
+    supported-symbols: [AAPL, GOOGL, TSLA, MSFT, AMZN]
 
+    limits:
+      min-quantity: 0.001
+      max-quantity: 10000.0
+      price-deviation-percent: 10  # ±10% 가격 제한
+      daily-order-limit: 100
+      market-order-buffer-percent: 10  # 시장가 주문 10% 버퍼
+
+    market-hours:
+      open: "09:00"
+      close: "15:30"
+      timezone: Asia/Seoul
+
+    pagination:
+      default-size: 20
+      max-size: 100
+
+    health-check:
+      max-validation-failure-rate: 0.1
+      max-error-rate: 0.05
+      max-avg-response-time-ms: 100
+      timeout-seconds: 5
+
+  # 매칭 엔진 설정 (Phase 4 대비)
   matching:
     engine:
-      enabled: false
+      enabled: false  # Phase 4에서 활성화
       processing-mode: SINGLE_THREAD
       batch-size: 100
       max-orders-per-symbol: 10000
 
-  event:
-    async:
-      enabled: true
-      core-pool-size: 2
-      max-pool-size: 10
-      queue-capacity: 500
-
+  # 계좌 관리 설정 (Phase 5 대비)
   account:
     initial-cash-balance: 100000.00
     use-pessimistic-lock: true
 
+  # 추적 설정
   tracing:
     enabled: true
     mdc-keys:
       - traceId
       - userId
       - orderId
+      - symbol
 
-
+# 로깅 설정
 logging:
   level:
     root: INFO
     com.trading: DEBUG
+    com.trading.marketdata.service: INFO  # 이벤트 리스너 로그 레벨
     org.springframework.web: INFO
+    org.springframework.transaction: DEBUG
     org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE  # 파라미터 로깅
 
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [%X{traceId}] - %msg%n"
+    console: "%clr(%d{HH:mm:ss.SSS}){faint} %clr(${LOG_LEVEL_PATTERN:-%5p}) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %clr([%X{traceId:-N/A}]){yellow} %m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} ${LOG_LEVEL_PATTERN:-%5p} ${PID:- } --- [%t] %-40.40logger{39} : [%X{traceId:-N/A}] %m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}"
 
+  file:
+    name: logs/trading-core.log
+    max-size: 10MB
+    max-history: 30
+    total-size-cap: 1GB
 
+# Actuator 설정
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,env,configprops
+        include: health,info,metrics,prometheus,env,configprops,loggers
       base-path: /actuator
+
   endpoint:
     health:
       show-details: always
+      show-components: always
+      probes:
+        enabled: true
 
+  health:
+    db:
+      enabled: true
+    diskspace:
+      enabled: true
+      threshold: 1GB
+
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      environment: ${spring.profiles.active}
+    export:
+      prometheus:
+        enabled: true
+      simple:
+        enabled: true
+        mode: step
+
+# 서버 설정
+server:
+  port: 8080
+  shutdown: graceful
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 10
+    accept-count: 100
+    connection-timeout: 20000
+
+# 애플리케이션 정보
 info:
   app:
     name: ${spring.application.name}
     version: '@project.version@'
-    description: Simple Trading Core - Modular Monolith Architecture
+    encoding: '@project.build.sourceEncoding@'
+    java:
+      version: '@java.version@'
+
+  architecture:
+    type: "Modular Monolith"
     philosophy: "Simple is Best"
+    principles:
+      - "Lock-free where possible"
+      - "BigDecimal for all monetary values"
+      - "UUID v7 for time-ordered IDs"
+      - "Spring Events for module communication"
+
+  modules:
+    market-data: "Generates realistic price movements using Random Walk"
+    order: "Handles order lifecycle with 2-phase validation"
+    matching: "Single-threaded lock-free matching engine (Phase 4)"
+    account: "Pessimistic locking for financial safety (Phase 5)"

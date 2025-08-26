@@ -102,4 +102,62 @@ class StructuredLogger(
             objectMapper.writeValueAsString(perfData)
         )
     }
+
+    // Order 관련 전용 로깅 메서드들 (Phase 3)
+    fun info(message: String, context: Map<String, Any> = emptyMap()) {
+        val logData = mutableMapOf<String, Any>(
+            "message" to message,
+            "timestamp" to java.time.Instant.now().toString()
+        )
+        logData.putAll(context)
+        MDC.get("traceId")?.let { traceId ->
+            logData["traceId"] = traceId
+        }
+        logger.info(
+            "Application info: {}",
+            objectMapper.writeValueAsString(logData)
+        )
+    }
+
+    fun warn(message: String, context: Map<String, Any> = emptyMap()) {
+        val logData = mutableMapOf<String, Any>(
+            "message" to message,
+            "timestamp" to java.time.Instant.now().toString()
+        )
+        logData.putAll(context)
+        MDC.get("traceId")?.let { traceId ->
+            logData["traceId"] = traceId
+        }
+        logger.warn(
+            "Application warning: {}",
+            objectMapper.writeValueAsString(logData)
+        )
+    }
+
+    fun error(message: String, context: Map<String, Any> = emptyMap(), exception: Exception? = null) {
+        val logData = mutableMapOf<String, Any>(
+            "message" to message,
+            "timestamp" to java.time.Instant.now().toString()
+        )
+        logData.putAll(context)
+        exception?.let {
+            logData["errorType"] = it.javaClass.simpleName
+            logData["errorMessage"] = it.message ?: "Unknown error"
+        }
+        MDC.get("traceId")?.let { traceId ->
+            logData["traceId"] = traceId
+        }
+        if (exception != null) {
+            logger.error(
+                "Application error: {}",
+                objectMapper.writeValueAsString(logData),
+                exception
+            )
+        } else {
+            logger.error(
+                "Application error: {}",
+                objectMapper.writeValueAsString(logData)
+            )
+        }
+    }
 }

@@ -3,6 +3,7 @@ import org.springframework.boot.gradle.plugin.SpringBootPlugin
 plugins {
     kotlin("jvm") version "2.0.0"
     kotlin("plugin.spring") version "2.0.0"
+    kotlin("plugin.jpa") version "2.0.0"
     id("org.springframework.boot") version "3.2.0"
     id("io.spring.dependency-management") version "1.1.4"
 }
@@ -17,6 +18,7 @@ repositories {
 dependencyManagement {
     imports {
         mavenBom(SpringBootPlugin.BOM_COORDINATES)
+        mavenBom("org.testcontainers:testcontainers-bom:1.19.3")
     }
 }
 
@@ -43,17 +45,28 @@ dependencies {
 
     // Logging
     implementation("net.logstash.logback:logstash-logback-encoder:7.4")
-    
+
     // UUID v7 Generation
     implementation("com.github.f4b6a3:uuid-creator:5.3.2")
-    
+
     // Guava for ThreadFactoryBuilder
     implementation("com.google.guava:guava:32.1.3-jre")
 
-    // Test
-    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    // ===== Test Dependencies =====
+    testImplementation("org.springframework.boot:spring-boot-starter-test") {
+        exclude(group = "org.junit.vintage", module = "junit-vintage-engine")
+    }
+
+    // TestContainers
+    testImplementation("org.testcontainers:testcontainers")
+    testImplementation("org.testcontainers:junit-jupiter")
+    testImplementation("org.testcontainers:mysql") // MySQL 컨테이너 지원
+
+
+    // Kotlin Test Support
     testImplementation("io.mockk:mockk:1.13.8")
     testImplementation("org.assertj:assertj-core")
+    testImplementation("com.ninja-squad:springmockk:4.0.2")
 }
 
 kotlin {
@@ -62,6 +75,13 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+
+    // TestContainers 관련 설정
+    environment("TESTCONTAINERS_REUSE_ENABLE", "true")
+    testLogging {
+        events("passed", "skipped", "failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
 }
 
 springBoot {
