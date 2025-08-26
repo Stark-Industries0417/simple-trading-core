@@ -135,48 +135,6 @@ class OrderService(
         }
     }
     
-    @Transactional(readOnly = true)
-    fun getUserOrders(userId: String, pageable: Pageable): Page<OrderResponse> {
-        return try {
-            val orders = orderRepository.findByUserIdOrderByCreatedAtDesc(userId, pageable)
-            orders.map { OrderResponse.from(it) }
-        } catch (ex: DataIntegrityViolationException) {
-            structuredLogger.error("Database constraint violation during user orders retrieval",
-                mapOf(
-                    "userId" to userId, 
-                    "page" to pageable.pageNumber.toString(),
-                    "error" to (ex.message ?: "Unknown error"),
-                    "constraintViolation" to true
-                )
-            )
-            throw OrderRetrievalException("Failed to retrieve orders due to data constraint violation", ex)
-                .withContext("userId", userId)
-                .withContext("page", pageable.pageNumber.toString())
-        } catch (ex: Exception) {
-            structuredLogger.error("Failed to retrieve user orders",
-                mapOf(
-                    "userId" to userId, 
-                    "page" to pageable.pageNumber.toString(),
-                    "error" to (ex.message ?: "Unknown error"),
-                    "exceptionType" to ex.javaClass.simpleName
-                )
-            )
-            throw OrderRetrievalException("Failed to retrieve orders for user", ex)
-                .withContext("userId", userId)
-                .withContext("page", pageable.pageNumber.toString())
-        }
-    }
-    
-    @Transactional(readOnly = true)
-    fun getOrder(orderId: String, userId: String): OrderResponse {
-        val order = orderRepository.findByIdAndUserId(orderId, userId)
-            ?: throw OrderNotFoundException("Order not found: $orderId")
-                .withContext("orderId", orderId)
-                .withContext("userId", userId)
-        
-        return OrderResponse.from(order)
-    }
-    
     fun cancelOrder(orderId: String, userId: String, reason: String = "User cancelled"): OrderResponse {
         val startTime = System.currentTimeMillis()
         
@@ -248,38 +206,6 @@ class OrderService(
             throw OrderProcessingException("Order cancellation failed due to unexpected error", ex)
                 .withContext("orderId", orderId)
                 .withContext("userId", userId)
-        }
-    }
-    
-    @Transactional(readOnly = true)
-    fun getActiveOrders(userId: String, pageable: Pageable): Page<OrderResponse> {
-        return try {
-            val orders = orderRepository.findActiveOrdersByUserId(userId, pageable = pageable)
-            orders.map { OrderResponse.from(it) }
-        } catch (ex: DataIntegrityViolationException) {
-            structuredLogger.error("Database constraint violation during active orders retrieval",
-                mapOf(
-                    "userId" to userId,
-                    "page" to pageable.pageNumber.toString(),
-                    "error" to (ex.message ?: "Unknown error"),
-                    "constraintViolation" to true
-                )
-            )
-            throw OrderRetrievalException("Failed to retrieve active orders due to data constraint violation", ex)
-                .withContext("userId", userId)
-                .withContext("page", pageable.pageNumber.toString())
-        } catch (ex: Exception) {
-            structuredLogger.error("Failed to retrieve active orders",
-                mapOf(
-                    "userId" to userId,
-                    "page" to pageable.pageNumber.toString(),
-                    "error" to (ex.message ?: "Unknown error"),
-                    "exceptionType" to ex.javaClass.simpleName
-                )
-            )
-            throw OrderRetrievalException("Failed to retrieve active orders", ex)
-                .withContext("userId", userId)
-                .withContext("page", pageable.pageNumber.toString())
         }
     }
     
