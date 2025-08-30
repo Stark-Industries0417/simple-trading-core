@@ -126,13 +126,37 @@ trading:
       max-avg-response-time-ms: 100
       timeout-seconds: 5
 
-  # 매칭 엔진 설정 (Phase 4 대비)
+  # 매칭 엔진 설정 (Phase 4 구현)
   matching:
     engine:
-      enabled: false  # Phase 4에서 활성화
-      processing-mode: SINGLE_THREAD
+      enabled: true  # Phase 4 활성화
+      processing-mode: THREAD_POOL  # 고정 스레드 풀 모드
       batch-size: 100
       max-orders-per-symbol: 10000
+    
+    # 스레드 풀 설정
+    thread-pool-size: 16  # CPU 코어 * 2
+    
+    # 비동기 처리 설정
+    async:
+      core-pool-size: 4
+      max-pool-size: 8
+      queue-capacity: 1000
+    
+    # 백프레셔 설정
+    backpressure:
+      max-queue-size: 10000
+      medium-queue-size: 7500
+      low-queue-size: 5000
+      high-reject-rate: 0.1
+      medium-reject-rate: 0.05
+      reset-interval-ms: 60000
+    
+    # Circuit Breaker 설정
+    circuit-breaker:
+      failure-threshold: 5
+      reset-timeout-ms: 30000
+      half-open-requests: 3
 
   # 계좌 관리 설정 (Phase 5 대비)
   account:
