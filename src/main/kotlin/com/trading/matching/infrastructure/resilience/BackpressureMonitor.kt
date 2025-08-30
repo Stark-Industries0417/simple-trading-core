@@ -59,7 +59,6 @@ class BackpressureMonitor {
         val elapsedTime = System.currentTimeMillis() - metrics.lastResetTime.get()
         if (elapsedTime <= 0) return MAX_QUEUE_SIZE
         
-        // Calculate rejection rate
         val totalRequests = metrics.acceptedCount.get() + metrics.rejectedCount.get()
         if (totalRequests == 0L) return MAX_QUEUE_SIZE
         
