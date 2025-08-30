@@ -30,7 +30,8 @@ data class MatchingEngineProperties(
 )
 enum class ProcessingMode {
     SINGLE_THREAD,
-    MULTI_THREAD
+    MULTI_THREAD,
+    THREAD_POOL
 }
 data class EventProperties(
     val async: AsyncEventProperties = AsyncEventProperties()
