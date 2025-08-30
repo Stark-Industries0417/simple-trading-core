@@ -158,10 +158,36 @@ trading:
       reset-timeout-ms: 30000
       half-open-requests: 3
 
-  # 계좌 관리 설정 (Phase 5 대비)
+  # 계좌 관리 설정 (Phase 5 구현)
   account:
     initial-cash-balance: 100000.00
     use-pessimistic-lock: true
+    
+    # Reconciliation 설정
+    reconciliation:
+      enabled: true
+      initial-balance: 100000.00
+      schedule-delay-ms: 60000  # 1분마다 실행
+      consistency-threshold: 99.99  # 정합성 목표 (%)
+      alert-on-inconsistency: true
+    
+    # Saga 보상 트랜잭션 설정
+    saga:
+      max-retry-attempts: 3
+      retry-backoff-multiplier: 2.0
+      retry-initial-delay-ms: 1000
+      dead-letter-queue-enabled: true
+    
+    # 비관적 잠금 설정
+    pessimistic-lock:
+      timeout-ms: 3000
+      deadlock-prevention: true  # userId 정렬을 통한 데드락 방지
+      
+    # 성능 목표
+    performance:
+      target-processing-time-ms: 50  # P99 목표
+      target-lock-wait-time-ms: 50
+      target-consistency-rate: 99.99
 
   # 추적 설정
   tracing:
