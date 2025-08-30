@@ -115,51 +115,18 @@ class OrderController(
         
         structuredLogger.logPerformance(
             operation = "CANCEL_ORDER",
-            durationMs = 0, // 추후 측정 로직 추가
+            durationMs = 0,
             success = true,
             details = mapOf(
                 "orderId" to orderId,
                 "userId" to userId,
-                "previousStatus" to "PENDING_OR_PARTIAL" // 실제 이전 상태는 서비스에서 로깅
+                "previousStatus" to "PENDING_OR_PARTIAL"
             )
         )
         
         return ResponseEntity.ok(cancelledOrder)
     }
     
-    @GetMapping("/active")
-    fun getActiveOrders(
-        @RequestHeader("X-User-Id") userId: String,
-        @PageableDefault(size = 10, sort = ["createdAt"]) pageable: Pageable,
-        httpRequest: HttpServletRequest
-    ): ResponseEntity<Page<OrderResponse>> {
-        
-        require(userId.isNotBlank()) { "User ID cannot be blank" }
-        
-        structuredLogger.logUserAction(
-            userId = userId,
-            action = "LIST_ACTIVE_ORDERS",
-            resource = "orders/active",
-            details = mapOf(
-                "page" to pageable.pageNumber.toString(),
-                "size" to pageable.pageSize.toString(),
-            )
-        )
-        
-        val activeOrders = orderService.getActiveOrders(userId, pageable)
-        
-        structuredLogger.logPerformance(
-            operation = "LIST_ACTIVE_ORDERS",
-            durationMs = 0,
-            success = true,
-            details = mapOf(
-                "userId" to userId,
-                "activeOrdersCount" to activeOrders.totalElements.toString()
-            )
-        )
-        
-        return ResponseEntity.ok(activeOrders)
-    }
     
     @GetMapping("/health")
     fun healthCheck(): ResponseEntity<Map<String, Any>> {
