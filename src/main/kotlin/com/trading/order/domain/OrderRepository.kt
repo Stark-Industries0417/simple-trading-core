@@ -29,4 +29,17 @@ interface OrderRepository : JpaRepository<Order, String> {
         @Param("statuses") statuses: List<OrderStatus> = listOf(OrderStatus.PENDING, OrderStatus.PARTIALLY_FILLED),
         pageable: Pageable
     ): Page<Order>
+    
+    @Query("""
+        SELECT COUNT(o) 
+        FROM Order o 
+        WHERE o.userId = :userId 
+        AND o.createdAt >= :startOfDay 
+        AND o.createdAt < :endOfDay
+    """)
+    fun countOrdersByUserIdAndDateRange(
+        @Param("userId") userId: String,
+        @Param("startOfDay") startOfDay: Instant,
+        @Param("endOfDay") endOfDay: Instant
+    ): Long
 }
