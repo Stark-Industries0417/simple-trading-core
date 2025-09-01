@@ -35,10 +35,17 @@ class OrderValidatorTest {
         orderLimitService = mockk()
         uuidGenerator = mockk()
 
-        validator = OrderValidator(structuredLogger)
+        validator = OrderValidator(structuredLogger, marketDataService, accountService, orderLimitService)
 
         // UUID 생성기 기본 동작
         every { uuidGenerator.generateOrderId() } returns "ORDER-TEST-123"
+        
+        // 기본 모킹 설정 - 모든 검증이 통과하도록
+        every { marketDataService.getCurrentPrice(any()) } returns BigDecimal("100.00")
+        every { accountService.hasSufficientCash(any(), any()) } returns true
+        every { accountService.hasSufficientStock(any(), any(), any()) } returns true
+        every { accountService.getCurrentPrice(any()) } returns BigDecimal("100.00")
+        every { orderLimitService.getDailyOrderCount(any()) } returns 0L
     }
 
     @Nested
@@ -140,7 +147,7 @@ class OrderValidatorTest {
             every { marketDataService.getCurrentPrice("AAPL") } returns currentPrice
 
             // When & Then - 예외 없음
-            validator.validateOrThrow(order, marketDataService)
+            validator.validateOrThrow(order)
         }
 
         @Test
@@ -157,7 +164,7 @@ class OrderValidatorTest {
 
             // When & Then
             assertThatThrownBy {
-                validator.validateOrThrow(order, marketDataService)
+                validator.validateOrThrow(order)
             }
                 .isInstanceOf(OrderValidationException::class.java)
                 .hasMessageContaining("outside allowed range")
@@ -173,8 +180,11 @@ class OrderValidatorTest {
             )
 
             // When & Then
+            every { marketDataService.getCurrentPrice("AAPL") } returns null
+
+            // When & Then
             assertThatThrownBy {
-                validator.validateOrThrow(order, null) // 서비스 없음
+                validator.validateOrThrow(order)
             }
                 .isInstanceOf(OrderValidationException::class.java)
                 .hasMessageContaining("market data unavailable")
@@ -196,11 +206,11 @@ class OrderValidatorTest {
             )
 
             every {
-                accountService.hasSufficientCash("user123", BigDecimal("1000.00"))
+                accountService.hasSufficientCash("user123", match { it.compareTo(BigDecimal("1000.00")) == 0 })
             } returns true
 
             // When & Then - 예외 없음
-            validator.validateOrThrow(order, accountService = accountService)
+            validator.validateOrThrow(order)
         }
 
         @Test
@@ -214,12 +224,12 @@ class OrderValidatorTest {
             )
 
             every {
-                accountService.hasSufficientCash("user123", BigDecimal("1000.00"))
+                accountService.hasSufficientCash("user123", match { it.compareTo(BigDecimal("1000.00")) == 0 })
             } returns false
 
             // When & Then
             assertThatThrownBy {
-                validator.validateOrThrow(order, accountService = accountService)
+                validator.validateOrThrow(order)
             }
                 .isInstanceOf(OrderValidationException::class.java)
                 .hasMessageContaining("Insufficient cash balance")
@@ -238,7 +248,7 @@ class OrderValidatorTest {
             } returns true
 
             // When & Then - 예외 없음
-            validator.validateOrThrow(order, accountService = accountService)
+            validator.validateOrThrow(order)
         }
 
         @Test
@@ -253,14 +263,14 @@ class OrderValidatorTest {
 
             every { accountService.getCurrentPrice("AAPL") } returns BigDecimal("100.00")
             every {
-                accountService.hasSufficientCash("user123", BigDecimal("1100.00")) // 10% 버퍼
+                accountService.hasSufficientCash("user123", match { it.compareTo(BigDecimal("1100.00")) == 0 }) // 10% 버퍼
             } returns true
 
             // When & Then - 예외 없음
-            validator.validateOrThrow(order, accountService = accountService)
+            validator.validateOrThrow(order)
 
             verify {
-                accountService.hasSufficientCash("user123", BigDecimal("1100.00"))
+                accountService.hasSufficientCash("user123", match { it.compareTo(BigDecimal("1100.00")) == 0 })
             }
         }
     }
@@ -276,7 +286,7 @@ class OrderValidatorTest {
             every { orderLimitService.getDailyOrderCount("user123") } returns 50
 
             // When & Then - 예외 없음
-            validator.validateOrThrow(order, orderLimitService = orderLimitService)
+            validator.validateOrThrow(order)
         }
 
         @Test
@@ -287,7 +297,7 @@ class OrderValidatorTest {
 
             // When & Then
             assertThatThrownBy {
-                validator.validateOrThrow(order, orderLimitService = orderLimitService)
+                validator.validateOrThrow(order)
             }
                 .isInstanceOf(OrderValidationException::class.java)
                 .hasMessageContaining("Daily order limit")
@@ -310,11 +320,11 @@ class OrderValidatorTest {
             )
 
             every { marketDataService.getCurrentPrice("AAPL") } returns BigDecimal("100.00")
-            every { accountService.hasSufficientCash("user123", BigDecimal("1050.00")) } returns true
+            every { accountService.hasSufficientCash("user123", match { it.compareTo(BigDecimal("1050.00")) == 0 }) } returns true
             every { orderLimitService.getDailyOrderCount("user123") } returns 10
 
             // When & Then - 모든 검증 통과
-            validator.validateOrThrow(order, marketDataService, accountService, orderLimitService)
+            validator.validateOrThrow(order)
 
             // 모든 서비스가 호출되었는지 확인
             verify { marketDataService.getCurrentPrice("AAPL") }
@@ -332,7 +342,7 @@ class OrderValidatorTest {
 
             // When & Then
             assertThatThrownBy {
-                validator.validateOrThrow(order, orderLimitService = orderLimitService)
+                validator.validateOrThrow(order)
             }
                 .isInstanceOf(OrderValidationException::class.java)
                 .hasMessageContaining("User limits validation failed")

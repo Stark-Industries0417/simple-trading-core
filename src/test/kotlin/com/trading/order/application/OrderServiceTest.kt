@@ -69,7 +69,7 @@ class OrderServiceTest {
             uuidGenerator = uuidGenerator
         )
 
-        every { orderValidator.validateOrThrow(any(), any(), any(), any()) } just Runs
+        every { orderValidator.validateOrThrow(any()) } just Runs
         every { orderRepository.save(any()) } returns order
         every { eventPublisher.publish(any()) } just Runs
 
@@ -81,7 +81,7 @@ class OrderServiceTest {
         assertThat(result.symbol).isEqualTo("AAPL")
         assertThat(result.status).isEqualTo(OrderStatus.PENDING)
 
-        verify(exactly = 1) { orderValidator.validateOrThrow(any(), any(), any(), any()) }
+        verify(exactly = 1) { orderValidator.validateOrThrow(any()) }
         verify(exactly = 1) { orderRepository.save(any()) }
         verify(exactly = 1) { eventPublisher.publish(any()) }
         verify(exactly = 1) { orderMetrics.recordOrderCreation(any()) }
@@ -101,7 +101,7 @@ class OrderServiceTest {
         val traceId = "trace-789"
 
         every {
-            orderValidator.validateOrThrow(any(), any(), any(), any())
+            orderValidator.validateOrThrow(any())
         } throws OrderValidationException("Unsupported symbol")
 
         // When & Then
@@ -184,7 +184,7 @@ class OrderServiceTest {
             uuidGenerator = uuidGenerator
         )
 
-        every { orderValidator.validateOrThrow(any(), any(), any(), any()) } just Runs
+        every { orderValidator.validateOrThrow(any()) } just Runs
         every { orderRepository.save(any()) } returns order
         every { eventPublisher.publish(any()) } throws RuntimeException("Event bus error")
 
