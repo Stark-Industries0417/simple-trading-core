@@ -14,7 +14,10 @@ import java.time.ZoneId
 
 @Component
 class OrderValidator(
-    private val structuredLogger: StructuredLogger
+    private val structuredLogger: StructuredLogger,
+    private val marketDataService: MarketDataService,
+    private val accountService: AccountService,
+    private val orderLimitService: OrderLimitService
 ) {
     companion object {
         private val SUPPORTED_SYMBOLS = setOf("AAPL", "GOOGL", "TSLA", "MSFT", "AMZN")
@@ -33,12 +36,7 @@ class OrderValidator(
         private val MARKET_ORDER_BUFFER = BigDecimal("1.10") // 10% 버퍼
     }
 
-    fun validateOrThrow(
-        order: Order,
-        marketDataService: MarketDataService? = null,
-        accountService: AccountService? = null,
-        orderLimitService: OrderLimitService? = null
-    ) {
+    fun validateOrThrow(order: Order) {
         try {
             structuredLogger.info("Starting business rules validation (fail-fast mode)", 
                 mapOf(
@@ -64,13 +62,8 @@ class OrderValidator(
                 validatePriceRangeOrThrow(order.symbol, order.price, marketDataService)
             }
             
-            accountService?.let { 
-                validateBalanceOrThrow(order, it) 
-            }
-            
-            orderLimitService?.let { 
-                validateUserLimitsOrThrow(order.userId, it) 
-            }
+            validateBalanceOrThrow(order, accountService)
+            validateUserLimitsOrThrow(order.userId, orderLimitService)
             
             structuredLogger.info("Business rules validation passed", 
                 mapOf(
@@ -151,10 +144,10 @@ class OrderValidator(
     private fun validatePriceRangeOrThrow(
         symbol: String, 
         price: BigDecimal, 
-        marketDataService: MarketDataService?
+        marketDataService: MarketDataService
     ) {
         try {
-            val currentPrice = marketDataService?.getCurrentPrice(symbol)
+            val currentPrice = marketDataService.getCurrentPrice(symbol)
                 ?: throw OrderValidationException("Cannot validate price: market data unavailable for $symbol")
                     .withContext("symbol", symbol)
                     .withContext("requestedPrice", price.toString())
