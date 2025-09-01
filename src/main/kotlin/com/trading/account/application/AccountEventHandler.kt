@@ -2,10 +2,10 @@ package com.trading.account.application
 
 import com.trading.account.domain.ReservationResult
 import com.trading.account.domain.StockReservationResult
-import com.trading.common.dto.OrderSide
+import com.trading.common.dto.order.OrderSide
 import com.trading.common.event.TradeExecutedEvent
-import com.trading.common.event.OrderCreatedEvent
-import com.trading.common.event.OrderCancelledEvent
+import com.trading.common.event.order.OrderCreatedEvent
+import com.trading.common.event.order.OrderCancelledEvent
 import com.trading.common.logging.StructuredLogger
 import org.springframework.context.event.EventListener
 import org.springframework.scheduling.annotation.Async

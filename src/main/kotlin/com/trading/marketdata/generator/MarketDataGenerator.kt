@@ -1,7 +1,7 @@
 package com.trading.marketdata.generator
 
-import com.trading.common.event.MarketDataUpdatedEvent
-import com.trading.common.dto.MarketDataDTO
+import com.trading.common.event.market.MarketDataUpdatedEvent
+import com.trading.common.dto.market.MarketDataDTO
 import com.trading.common.util.TraceIdGenerator
 import com.trading.common.util.UUIDv7Generator
 import com.trading.marketdata.config.MarketDataConfig

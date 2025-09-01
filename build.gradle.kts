@@ -1,78 +1,123 @@
 import org.springframework.boot.gradle.plugin.SpringBootPlugin
 
 plugins {
-    kotlin("jvm") version "2.0.0"
-    kotlin("plugin.spring") version "2.0.0"
-    kotlin("plugin.jpa") version "2.0.0"
-    id("org.springframework.boot") version "3.2.0"
-    id("io.spring.dependency-management") version "1.1.4"
+    kotlin("jvm") version Versions.kotlin
+    kotlin("plugin.spring") version Versions.kotlin
+    kotlin("plugin.jpa") version Versions.kotlin
+    id("org.springframework.boot") version Versions.springBoot
+    id("io.spring.dependency-management") version Versions.springDependencyManagement
 }
 
-group = "com.trading"
-version = "1.0.0-SNAPSHOT"
+allprojects {
+    group = "com.trading"
+    version = "1.0.0-SNAPSHOT"
 
-repositories {
-    mavenCentral()
+    repositories {
+        mavenCentral()
+    }
 }
 
-dependencyManagement {
+// 서브프로젝트 공통 설정
+subprojects {
+    apply(plugin = "kotlin")
+    apply(plugin = "io.spring.dependency-management")
+    
+    // Spring Boot BOM 적용
+    the<io.spring.gradle.dependencymanagement.dsl.DependencyManagementExtension>().apply {
+        imports {
+            mavenBom(SpringBootPlugin.BOM_COORDINATES)
+            mavenBom("org.testcontainers:testcontainers-bom:${Versions.testcontainers}")
+        }
+    }
+    
+    // Kotlin 설정
+    configure<org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension> {
+        jvmToolchain(17)
+    }
+    
+    // 테스트 설정
+    tasks.withType<Test> {
+        useJUnitPlatform()
+        testLogging {
+            events("passed", "skipped", "failed")
+        }
+    }
+    
+    // 공통 의존성
+    dependencies {
+        val implementation by configurations
+        val testImplementation by configurations
+        
+        // Kotlin
+        implementation(Dependencies.kotlinReflect)
+        implementation(Dependencies.kotlinStdlib)
+        
+        // 테스트
+        testImplementation(Dependencies.springBootStarterTest)
+        testImplementation(Dependencies.mockk)
+        testImplementation(Dependencies.assertjCore)
+    }
+}
+
+// Spring Boot BOM 적용 (루트 프로젝트에도 필요)
+the<io.spring.gradle.dependencymanagement.dsl.DependencyManagementExtension>().apply {
     imports {
         mavenBom(SpringBootPlugin.BOM_COORDINATES)
-        mavenBom("org.testcontainers:testcontainers-bom:1.19.3")
+        mavenBom("org.testcontainers:testcontainers-bom:${Versions.testcontainers}")
     }
 }
 
 dependencies {
+    // Module dependencies
+    implementation(project(":common-library"))
+    
     // Spring Boot Starters
-    implementation("org.springframework.boot:spring-boot-starter-web")
-    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
-    implementation("org.springframework.boot:spring-boot-starter-validation")
-    implementation("org.springframework.boot:spring-boot-starter-actuator")
-    implementation("org.springframework.boot:spring-boot-starter-aop")
-    implementation("org.springframework.boot:spring-boot-starter-security")
+    implementation(Dependencies.springBootStarterWeb)
+    implementation(Dependencies.springBootStarterDataJpa)
+    implementation(Dependencies.springBootStarterValidation)
+    implementation(Dependencies.springBootStarterActuator)
+    implementation(Dependencies.springBootStarterAop)
+    implementation(Dependencies.springBootStarterSecurity)
 
     // Kotlin
-    implementation("org.jetbrains.kotlin:kotlin-reflect")
-    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+    implementation(Dependencies.jacksonModuleKotlin)
 
     // Database
-    runtimeOnly("com.h2database:h2")
-    runtimeOnly("mysql:mysql-connector-java:8.0.33")
+    runtimeOnly(Dependencies.h2Database)
+    runtimeOnly(Dependencies.mysqlConnector)
 
     // Configuration
-    annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
+    annotationProcessor(Dependencies.springBootConfigurationProcessor)
 
     // Logging
-    implementation("net.logstash.logback:logstash-logback-encoder:7.4")
+    implementation(Dependencies.logstashLogbackEncoder)
 
     // UUID v7 Generation
-    implementation("com.github.f4b6a3:uuid-creator:5.3.2")
+    implementation(Dependencies.uuidCreator)
 
     // Guava for ThreadFactoryBuilder
-    implementation("com.google.guava:guava:32.1.3-jre")
+    implementation(Dependencies.guava)
 
     // ===== Test Dependencies =====
-    testImplementation("org.springframework.boot:spring-boot-starter-test") {
+    testImplementation(Dependencies.springBootStarterTest) {
         exclude(group = "org.junit.vintage", module = "junit-vintage-engine")
     }
 
     // TestContainers
-    testImplementation("org.testcontainers:testcontainers")
-    testImplementation("org.testcontainers:junit-jupiter")
-    testImplementation("org.testcontainers:mysql") // MySQL 컨테이너 지원
-
+    testImplementation(Dependencies.testcontainers)
+    testImplementation(Dependencies.testcontainersJupiter)
+    testImplementation(Dependencies.testcontainersMysql)
 
     // Kotlin Test Support
-    testImplementation("io.mockk:mockk:1.13.8")
-    testImplementation("org.assertj:assertj-core")
-    testImplementation("com.ninja-squad:springmockk:4.0.2")
+    testImplementation(Dependencies.springMockk)
 }
 
-kotlin {
+// Root 프로젝트에도 Kotlin 설정
+configure<org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension> {
     jvmToolchain(17)
 }
 
+// Root 프로젝트 테스트 설정
 tasks.withType<Test> {
     useJUnitPlatform()
 
@@ -84,11 +129,11 @@ tasks.withType<Test> {
     }
 }
 
-springBoot {
+configure<org.springframework.boot.gradle.dsl.SpringBootExtension> {
     mainClass.set("com.trading.SimpleTradingCoreApplicationKt")
 }
 
-tasks.bootJar {
+tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {
     enabled = true
     archiveBaseName.set("simple-trading-core")
 }

@@ -1,6 +1,6 @@
 package com.trading.order.infrastructure.adapter
 
-import com.trading.common.dto.OrderStatus
+import com.trading.common.dto.order.OrderStatus
 import com.trading.common.logging.StructuredLogger
 import com.trading.order.domain.OrderLimitService
 import com.trading.order.domain.OrderRepository

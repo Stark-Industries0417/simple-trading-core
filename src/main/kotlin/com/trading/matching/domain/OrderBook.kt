@@ -1,7 +1,7 @@
 package com.trading.matching.domain
 
-import com.trading.common.dto.OrderDTO
-import com.trading.common.dto.OrderSide
+import com.trading.common.dto.order.OrderDTO
+import com.trading.common.dto.order.OrderSide
 import java.math.BigDecimal
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap

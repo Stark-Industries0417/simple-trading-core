@@ -1,6 +1,6 @@
 package com.trading.common.logging
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.trading.common.event.DomainEvent
+import com.trading.common.event.base.DomainEvent
 import org.slf4j.LoggerFactory
 import org.slf4j.MDC
 import org.springframework.stereotype.Component

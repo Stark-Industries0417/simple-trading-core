@@ -2,8 +2,8 @@ package com.trading.account.saga
 
 import com.trading.account.application.OrderServiceClient
 import com.trading.account.infrastructure.persistence.AccountRepository
-import com.trading.common.event.AccountUpdateFailedEvent
-import com.trading.common.event.EventPublisher
+import com.trading.common.event.account.AccountUpdateFailedEvent
+import com.trading.common.event.base.EventPublisher
 import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.UUIDv7Generator
 import org.springframework.context.event.EventListener

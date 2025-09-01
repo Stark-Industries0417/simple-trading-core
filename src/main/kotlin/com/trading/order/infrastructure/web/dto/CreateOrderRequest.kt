@@ -1,7 +1,7 @@
 package com.trading.order.infrastructure.web.dto
 
-import com.trading.common.dto.OrderSide
-import com.trading.common.dto.OrderType
+import com.trading.common.dto.order.OrderSide
+import com.trading.common.dto.order.OrderType
 import jakarta.validation.constraints.*
 import java.math.BigDecimal
 

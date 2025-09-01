@@ -1,8 +1,8 @@
 package com.trading.order.domain
 
-import com.trading.common.dto.OrderSide
-import com.trading.common.dto.OrderType
-import com.trading.common.exception.OrderValidationException
+import com.trading.common.dto.order.OrderSide
+import com.trading.common.dto.order.OrderType
+import com.trading.common.exception.order.OrderValidationException
 import com.trading.common.logging.StructuredLogger
 import org.springframework.stereotype.Component
 import java.math.BigDecimal

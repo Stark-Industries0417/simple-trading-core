@@ -1,8 +1,8 @@
 package com.trading.matching.infrastructure.engine
 
-import com.trading.common.dto.OrderDTO
-import com.trading.common.dto.OrderType
-import com.trading.common.event.EventPublisher
+import com.trading.common.dto.order.OrderDTO
+import com.trading.common.dto.order.OrderType
+import com.trading.common.event.base.EventPublisher
 import com.trading.common.event.TradeExecutedEvent
 import org.slf4j.LoggerFactory
 import com.trading.common.util.UUIDv7Generator

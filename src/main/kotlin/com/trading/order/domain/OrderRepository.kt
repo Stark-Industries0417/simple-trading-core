@@ -1,6 +1,6 @@
 package com.trading.order.domain
 
-import com.trading.common.dto.OrderStatus
+import com.trading.common.dto.order.OrderStatus
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository

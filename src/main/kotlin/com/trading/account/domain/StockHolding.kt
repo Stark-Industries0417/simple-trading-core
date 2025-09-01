@@ -1,6 +1,6 @@
 package com.trading.account.domain
 
-import com.trading.common.exception.InsufficientBalanceException
+import com.trading.common.exception.account.InsufficientBalanceException
 import com.trading.common.util.UUIDv7Generator
 import jakarta.persistence.*
 import java.math.BigDecimal

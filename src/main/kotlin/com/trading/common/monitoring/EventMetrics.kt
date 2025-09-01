@@ -1,5 +1,5 @@
 package com.trading.common.monitoring
-import com.trading.common.event.DomainEvent
+import com.trading.common.event.base.DomainEvent
 import com.trading.common.event.EventListenerBase
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.MeterRegistry

@@ -3,9 +3,9 @@ package com.trading.account.application
 import com.trading.account.domain.*
 import com.trading.account.infrastructure.persistence.AccountRepository
 import com.trading.account.infrastructure.persistence.StockHoldingRepository
-import com.trading.common.dto.AccountDTO
+import com.trading.common.dto.account.AccountDTO
 import com.trading.common.event.*
-import com.trading.common.exception.InsufficientBalanceException
+import com.trading.common.exception.account.InsufficientBalanceException
 import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.UUIDv7Generator
 import jakarta.persistence.PessimisticLockException

@@ -1,9 +1,8 @@
 package com.trading.order.application
 
-import com.trading.common.dto.OrderDTO
-import com.trading.common.event.EventPublisher
-import com.trading.common.event.OrderCancelledEvent
-import com.trading.common.event.OrderCreatedEvent
+import com.trading.common.event.base.EventPublisher
+import com.trading.common.event.order.OrderCancelledEvent
+import com.trading.common.event.order.OrderCreatedEvent
 import com.trading.common.exception.*
 import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.UUIDv7Generator
@@ -216,7 +215,7 @@ class OrderService(
                 aggregateId = order.id,
                 occurredAt = Instant.now(),
                 traceId = order.traceId,
-                order = OrderDTO.from(order)
+                order = order.toDTO()
             )
             
             eventPublisher.publish(event)

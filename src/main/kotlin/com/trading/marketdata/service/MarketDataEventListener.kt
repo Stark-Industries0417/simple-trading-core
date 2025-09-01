@@ -1,6 +1,6 @@
 package com.trading.marketdata.service
 
-import com.trading.common.event.MarketDataUpdatedEvent
+import com.trading.common.event.market.MarketDataUpdatedEvent
 import com.trading.common.logging.StructuredLogger
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty

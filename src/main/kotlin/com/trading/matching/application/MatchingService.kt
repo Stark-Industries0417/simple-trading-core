@@ -1,7 +1,7 @@
 package com.trading.matching.application
 
-import com.trading.common.dto.OrderDTO
-import com.trading.common.event.OrderCreatedEvent
+import com.trading.common.dto.order.OrderDTO
+import com.trading.common.event.order.OrderCreatedEvent
 import com.trading.common.logging.StructuredLogger
 import org.slf4j.LoggerFactory
 import com.trading.matching.infrastructure.engine.EngineMetrics

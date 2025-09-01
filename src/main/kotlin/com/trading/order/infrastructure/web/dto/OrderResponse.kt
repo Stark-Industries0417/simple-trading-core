@@ -1,8 +1,8 @@
 package com.trading.order.infrastructure.web.dto
 
-import com.trading.common.dto.OrderSide
-import com.trading.common.dto.OrderStatus
-import com.trading.common.dto.OrderType
+import com.trading.common.dto.order.OrderSide
+import com.trading.common.dto.order.OrderStatus
+import com.trading.common.dto.order.OrderType
 import com.trading.order.domain.Order
 import java.math.BigDecimal
 import java.time.Instant

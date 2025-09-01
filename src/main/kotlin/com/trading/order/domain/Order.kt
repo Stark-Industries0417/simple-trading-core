@@ -1,9 +1,9 @@
 package com.trading.order.domain
 
-import com.trading.common.dto.OrderSide
-import com.trading.common.dto.OrderStatus
-import com.trading.common.dto.OrderType
-import com.trading.common.exception.OrderStateException
+import com.trading.common.dto.order.OrderSide
+import com.trading.common.dto.order.OrderStatus
+import com.trading.common.dto.order.OrderType
+import com.trading.common.exception.order.OrderStateException
 import com.trading.common.util.UUIDv7Generator
 import jakarta.persistence.*
 import java.math.BigDecimal

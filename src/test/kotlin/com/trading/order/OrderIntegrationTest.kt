@@ -1,11 +1,11 @@
 package com.trading.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.trading.common.dto.OrderSide
-import com.trading.common.dto.OrderStatus
-import com.trading.common.dto.OrderType
-import com.trading.common.event.OrderCancelledEvent
-import com.trading.common.event.OrderCreatedEvent
+import com.trading.common.dto.order.OrderSide
+import com.trading.common.dto.order.OrderStatus
+import com.trading.common.dto.order.OrderType
+import com.trading.common.event.order.OrderCancelledEvent
+import com.trading.common.event.order.OrderCreatedEvent
 import com.trading.order.config.TestSecurityConfig
 import com.trading.order.domain.OrderRepository
 import com.trading.order.infrastructure.web.dto.CreateOrderRequest
