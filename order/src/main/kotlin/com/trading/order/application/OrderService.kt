@@ -12,6 +12,9 @@ import com.trading.common.util.UUIDv7Generator
 import com.trading.order.domain.*
 import com.trading.order.infrastructure.web.dto.CreateOrderRequest
 import com.trading.order.infrastructure.web.dto.OrderResponse
+import com.trading.order.infrastructure.outbox.OrderOutboxEvent
+import com.trading.order.infrastructure.outbox.OrderOutboxRepository
+import com.fasterxml.jackson.databind.ObjectMapper
 import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
@@ -26,7 +29,9 @@ class OrderService(
     private val eventPublisher: EventPublisher,
     private val structuredLogger: StructuredLogger,
     private val uuidGenerator: UUIDv7Generator,
-    private val orderMetrics: OrderMetrics
+    private val orderMetrics: OrderMetrics,
+    private val outboxRepository: OrderOutboxRepository,
+    private val objectMapper: ObjectMapper
 ) {
     
     companion object {
@@ -83,6 +88,10 @@ class OrderService(
                 }
             )
             
+            // Outbox 이벤트 생성 및 저장 - 같은 트랜잭션 내에서
+            val event = createAndSaveOutboxEvent(savedOrder)
+            
+            // 이벤트 발행은 여전히 수행 (점진적 마이그레이션을 위해)
             publishOrderCreatedEvent(savedOrder)
             
             return OrderResponse.from(savedOrder)
@@ -162,6 +171,10 @@ class OrderService(
                 }
             )
             
+            // Outbox 이벤트 생성 및 저장 - 같은 트랜잭션 내에서
+            val event = createAndSaveCancelledOutboxEvent(savedOrder)
+            
+            // 이벤트 발행은 여전히 수행 (점진적 마이그레이션을 위해)
             publishOrderCancelledEvent(savedOrder)
             
             OrderResponse.from(savedOrder)
@@ -272,6 +285,72 @@ class OrderService(
                 }
             )
         }
+    }
+    
+    private fun createAndSaveOutboxEvent(order: Order): OrderOutboxEvent {
+        val event = OrderCreatedEvent(
+            eventId = uuidGenerator.generateEventId(),
+            aggregateId = order.id,
+            occurredAt = Instant.now(),
+            traceId = order.traceId,
+            order = order.toDTO()
+        )
+        
+        val outboxEvent = OrderOutboxEvent(
+            eventId = event.eventId,
+            aggregateId = order.id,
+            eventType = "OrderCreated",
+            payload = objectMapper.writeValueAsString(event),
+            orderId = order.id,
+            userId = order.userId
+        )
+        
+        val savedOutboxEvent = outboxRepository.save(outboxEvent)
+        
+        structuredLogger.info("Outbox event created for OrderCreated",
+            buildMap {
+                put("eventId", event.eventId)
+                put("orderId", order.id)
+                put("userId", order.userId)
+                put("traceId", order.traceId)
+            }
+        )
+        
+        return savedOutboxEvent
+    }
+    
+    private fun createAndSaveCancelledOutboxEvent(order: Order): OrderOutboxEvent {
+        val event = OrderCancelledEvent(
+            eventId = uuidGenerator.generateEventId(),
+            aggregateId = order.id,
+            occurredAt = Instant.now(),
+            traceId = order.traceId,
+            orderId = order.id,
+            userId = order.userId,
+            reason = order.cancellationReason ?: "Unknown reason"
+        )
+        
+        val outboxEvent = OrderOutboxEvent(
+            eventId = event.eventId,
+            aggregateId = order.id,
+            eventType = "OrderCancelled",
+            payload = objectMapper.writeValueAsString(event),
+            orderId = order.id,
+            userId = order.userId
+        )
+        
+        val savedOutboxEvent = outboxRepository.save(outboxEvent)
+        
+        structuredLogger.info("Outbox event created for OrderCancelled",
+            buildMap {
+                put("eventId", event.eventId)
+                put("orderId", order.id)
+                put("userId", order.userId)
+                put("traceId", order.traceId)
+            }
+        )
+        
+        return savedOutboxEvent
     }
 }
 
