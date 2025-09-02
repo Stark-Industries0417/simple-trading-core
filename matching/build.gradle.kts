@@ -11,6 +11,14 @@ dependencies {
 
     // Guava for ThreadFactory
     implementation(Dependencies.guava)
+    
+    // Kafka
+    implementation("org.springframework.kafka:spring-kafka")
+    implementation("org.apache.kafka:kafka-clients")
+    implementation("org.apache.kafka:kafka-streams")
+    
+    // JSON Processing
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
 }
 
 tasks.jar {

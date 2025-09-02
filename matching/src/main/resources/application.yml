@@ -3,13 +3,54 @@ spring:
     name: matching-engine-service
     
 server:
-  port: 8082
+  port: ${SERVER_PORT:8082}
+  servlet:
+    context-path: /matching
+
+# Kafka Configuration
+kafka:
+  bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  schema-registry-url: ${SCHEMA_REGISTRY_URL:http://localhost:8081}
   
+  producer:
+    acks: all
+    retries: 3
+    batch-size: 16384
+    linger-ms: 10
+    compression-type: snappy
+    idempotence-enabled: true
+    max-in-flight-requests-per-connection: 1
+  
+  consumer:
+    group-id: matching-engine-group
+    auto-offset-reset: earliest
+    enable-auto-commit: false
+    isolation-level: read_committed
+    max-poll-records: 100
+    session-timeout-ms: 30000
+  
+  topics:
+    order-events: order.events
+    trade-events: trade.events
+    account-events: account.events
+    market-data: market.data
+
 matching:
   engine:
     worker-threads: 4
     queue-capacity: 10000
     max-orders-per-symbol: 1000
+  
+  # Thread pool configuration for matching workers
+  thread-pool-size: ${MATCHING_THREAD_POOL_SIZE:16}
+  
+  # Kafka transactional processing configuration
+  kafka:
+    transactional-id-prefix: matching-engine-
+    processing:
+      poll-timeout-ms: 100
+      max-retries: 3
+      retry-backoff-ms: 1000
     
   backpressure:
     threshold: 0.8
