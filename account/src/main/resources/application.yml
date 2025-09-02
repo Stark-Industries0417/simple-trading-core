@@ -3,10 +3,10 @@ spring:
     name: account-service
   
   datasource:
-    url: jdbc:h2:mem:accountdb
-    driver-class-name: org.h2.Driver
-    username: sa
-    password: 
+    url: jdbc:mysql://localhost:3306/trading_core?useSSL=false&serverTimezone=UTC&createDatabaseIfNotExist=true
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: password
     
   jpa:
     hibernate:
