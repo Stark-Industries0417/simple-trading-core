@@ -2,10 +2,7 @@ package com.trading.matching.infrastructure.engine
 
 import com.trading.common.dto.order.OrderDTO
 import com.trading.common.dto.order.OrderType
-import com.trading.common.event.base.EventPublisher
-import com.trading.common.event.matching.TradeExecutedEvent
 import org.slf4j.LoggerFactory
-import com.trading.common.util.UUIDv7Generator
 import com.trading.matching.domain.OrderBook
 import com.trading.matching.domain.Trade
 import com.trading.matching.infrastructure.resilience.CircuitBreaker
@@ -18,9 +15,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 
 class MatchingWorker(
-    val id: Int,
-    private val eventPublisher: EventPublisher,
-    private val uuidGenerator: UUIDv7Generator
+    val id: Int
 ) : Runnable {
     
     companion object {
@@ -44,6 +39,9 @@ class MatchingWorker(
     private var running = true
     @Volatile
     private var processingComplete = false
+    
+    // Store trades temporarily for retrieval
+    private val recentTrades = ConcurrentHashMap<String, MutableList<Trade>>()
     
     fun submitOrder(order: OrderDTO, traceId: String = ""): Boolean {
         return try {
@@ -177,10 +175,13 @@ class MatchingWorker(
                 }
             }
             
-            trades.forEach { trade ->
-                publishTradeEvent(trade, traceId)
-                tradesExecuted.incrementAndGet()
+            // Store trades for retrieval
+            if (trades.isNotEmpty()) {
+                recentTrades.computeIfAbsent(order.orderId) { mutableListOf() }.addAll(trades)
             }
+            
+            // Trade events are published by TransactionalMatchingProcessor
+            tradesExecuted.addAndGet(trades.size.toLong())
             
             if (order.quantity > BigDecimal.ZERO && order.orderType == OrderType.LIMIT) {
                 logger.debug(
@@ -222,52 +223,6 @@ class MatchingWorker(
         }
     }
     
-    private fun publishTradeEvent(trade: Trade, traceId: String) {
-        try {
-            val event = TradeExecutedEvent(
-                eventId = uuidGenerator.generateEventId(),
-                aggregateId = trade.tradeId,
-                occurredAt = Instant.now(),
-                traceId = traceId,
-                tradeId = trade.tradeId,
-                symbol = trade.symbol,
-                buyOrderId = trade.buyOrderId,
-                sellOrderId = trade.sellOrderId,
-                buyUserId = trade.buyUserId,
-                sellUserId = trade.sellUserId,
-                price = trade.price,
-                quantity = trade.quantity,
-                timestamp = trade.timestamp
-            )
-            
-            eventPublisher.publish(event)
-            
-            logger.info(
-                "Trade executed",
-                mapOf(
-                    "workerId" to id,
-                    "tradeId" to trade.tradeId,
-                    "symbol" to trade.symbol,
-                    "price" to trade.price.toString(),
-                    "quantity" to trade.quantity.toString(),
-                    "buyOrderId" to trade.buyOrderId,
-                    "sellOrderId" to trade.sellOrderId,
-                    "traceId" to traceId
-                )
-            )
-            
-        } catch (e: Exception) {
-            logger.error(
-                "Failed to publish trade event",
-                mapOf(
-                    "workerId" to id,
-                    "tradeId" to trade.tradeId,
-                    "error" to e.message,
-                    "traceId" to traceId
-                )
-            )
-        }
-    }
     
     fun shutdown() {
         running = false
@@ -289,6 +244,11 @@ class MatchingWorker(
     fun getOrdersProcessed(): Long = ordersProcessed.get()
     fun getOrdersRejected(): Long = ordersRejected.get()
     fun getTradesExecuted(): Long = tradesExecuted.get()
+    
+    fun getTradesForOrder(orderId: String): List<Trade> {
+        val trades = recentTrades.remove(orderId)
+        return trades ?: emptyList()
+    }
     
     fun getMetrics(): Map<String, Any> = mapOf(
         "workerId" to id,

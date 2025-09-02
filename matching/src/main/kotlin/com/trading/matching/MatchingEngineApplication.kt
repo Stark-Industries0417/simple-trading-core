@@ -2,6 +2,7 @@ package com.trading.matching
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
+import org.springframework.scheduling.annotation.EnableScheduling
 
 /**
  * Matching Engine Application
@@ -17,6 +18,7 @@ import org.springframework.boot.runApplication
         "com.trading.common"
     ]
 )
+@EnableScheduling
 class MatchingEngineApplication
 
 fun main(args: Array<String>) {

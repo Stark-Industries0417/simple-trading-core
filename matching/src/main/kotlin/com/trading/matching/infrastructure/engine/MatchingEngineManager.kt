@@ -1,14 +1,11 @@
 package com.trading.matching.infrastructure.engine
 
 import com.trading.common.dto.order.OrderDTO
-import com.trading.common.event.base.EventPublisher
-import com.trading.common.event.matching.OrderRejectedEvent
 import org.slf4j.LoggerFactory
-import com.trading.common.util.UUIDv7Generator
+import com.trading.matching.domain.Trade
 import com.trading.matching.infrastructure.resilience.BackpressureMonitor
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
-import java.time.Instant
 import java.util.concurrent.TimeUnit
 import jakarta.annotation.PostConstruct
 import jakarta.annotation.PreDestroy
@@ -20,9 +17,7 @@ import kotlin.math.absoluteValue
 class MatchingEngineManager(
     @Value("\${matching.thread-pool-size:16}")
     private val threadPoolSize: Int = Runtime.getRuntime().availableProcessors() * 2,
-    private val eventPublisher: EventPublisher,
-    private val backpressureMonitor: BackpressureMonitor,
-    private val uuidGenerator: UUIDv7Generator
+    private val backpressureMonitor: BackpressureMonitor
 ) {
     companion object {
         private val logger = LoggerFactory.getLogger(MatchingEngineManager::class.java)
@@ -42,7 +37,7 @@ class MatchingEngineManager(
         )
         
         workers = Array(threadPoolSize) { workerId ->
-            MatchingWorker(workerId, eventPublisher, uuidGenerator)
+            MatchingWorker(workerId)
         }
         
         workerThreads = Array(threadPoolSize) { index ->
@@ -81,7 +76,7 @@ class MatchingEngineManager(
                     "traceId" to traceId
                 )
             )
-            publishOrderRejectedEvent(order, "BACKPRESSURE", traceId)
+            // Order rejected event handling removed - handled at Kafka layer
             return false
         }
         
@@ -98,7 +93,7 @@ class MatchingEngineManager(
                     "traceId" to traceId
                 )
             )
-            publishOrderRejectedEvent(order, "QUEUE_FULL", traceId)
+            // Order rejected event handling removed - handled at Kafka layer
             return false
         }
         
@@ -118,34 +113,6 @@ class MatchingEngineManager(
         return true
     }
     
-    private fun publishOrderRejectedEvent(order: OrderDTO, reason: String, traceId: String) {
-        try {
-            val event = OrderRejectedEvent(
-                eventId = uuidGenerator.generateEventId(),
-                aggregateId = order.orderId,
-                occurredAt = Instant.now(),
-                traceId = traceId,
-                orderId = order.orderId,
-                userId = order.userId,
-                symbol = order.symbol,
-                reason = reason,
-                timestamp = System.currentTimeMillis()
-            )
-            
-            eventPublisher.publish(event)
-            
-        } catch (e: Exception) {
-            logger.error(
-                "Failed to publish order rejected event",
-                mapOf(
-                    "orderId" to order.orderId,
-                    "reason" to reason,
-                    "error" to e.message,
-                    "traceId" to traceId
-                )
-            )
-        }
-    }
     
     fun getMetrics(): EngineMetrics {
         val workerMetrics = workers.map { it.getMetrics() }
@@ -160,6 +127,80 @@ class MatchingEngineManager(
             backpressureMetrics = backpressureMonitor.getAllMetrics(),
             workerMetrics = workerMetrics
         )
+    }
+    
+    fun processOrderWithResult(order: OrderDTO, traceId: String = ""): List<Trade> {
+        val startTime = System.nanoTime()
+        val workerIndex = order.symbol.hashCode().absoluteValue % threadPoolSize
+        val worker = workers[workerIndex]
+        
+        backpressureMonitor.recordQueueSize(order.symbol, worker.getQueueSize())
+        
+        if (backpressureMonitor.shouldReject(order.symbol)) {
+            logger.warn(
+                "Order rejected due to backpressure",
+                mapOf(
+                    "orderId" to order.orderId,
+                    "symbol" to order.symbol,
+                    "workerId" to workerIndex,
+                    "reason" to "BACKPRESSURE",
+                    "traceId" to traceId
+                )
+            )
+            // Order rejected event handling removed - handled at Kafka layer
+            return emptyList()
+        }
+        
+        val submitted = worker.submitOrder(order, traceId)
+        
+        if (!submitted) {
+            logger.warn(
+                "Order submission failed",
+                mapOf(
+                    "orderId" to order.orderId,
+                    "symbol" to order.symbol,
+                    "workerId" to workerIndex,
+                    "reason" to "QUEUE_FULL",
+                    "traceId" to traceId
+                )
+            )
+            // Order rejected event handling removed - handled at Kafka layer
+            return emptyList()
+        }
+        
+        // Poll for trades with exponential backoff
+        val maxAttempts = 10
+        val baseDelayMs = 1L
+        var trades: List<Trade> = emptyList()
+
+        for (attempt in 1..maxAttempts) {
+            trades = worker.getTradesForOrder(order.orderId)
+            if (trades.isNotEmpty()) {
+                break
+            }
+
+            // Exponential backoff: 1ms, 2ms, 4ms, 8ms, ...
+            val delayMs = baseDelayMs shl (attempt - 1)
+            if (attempt < maxAttempts) {
+                Thread.sleep(delayMs.coerceAtMost(50))
+            }
+        }
+        
+        val latencyNanos = System.nanoTime() - startTime
+        if (latencyNanos > 10_000_000) {
+            logger.debug(
+                "Order processing latency",
+                mapOf(
+                    "orderId" to order.orderId,
+                    "symbol" to order.symbol,
+                    "latencyMs" to (latencyNanos / 1_000_000).toString(),
+                    "tradesGenerated" to trades.size,
+                    "traceId" to traceId
+                )
+            )
+        }
+        
+        return trades
     }
     
     fun waitForAllCompletion(timeout: Long = 30, unit: TimeUnit = TimeUnit.SECONDS): Boolean {
