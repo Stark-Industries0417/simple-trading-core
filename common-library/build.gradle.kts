@@ -1,3 +1,5 @@
+import org.springframework.boot.gradle.tasks.bundling.BootJar
+
 plugins {
     kotlin("jvm")
     kotlin("plugin.spring")
@@ -5,32 +7,33 @@ plugins {
 }
 
 dependencies {
-    // Spring Boot Core (Event, Validation만)
-    implementation("org.springframework.boot:spring-boot-starter")
-    implementation("org.springframework.boot:spring-boot-starter-validation")
+    // Spring Context for ApplicationEventPublisher only
+    compileOnly("org.springframework:spring-context")
+    
+    // Jackson for StructuredLogger
+    compileOnly("com.fasterxml.jackson.core:jackson-databind")
+    
+    // SLF4J for logging
+    implementation("org.slf4j:slf4j-api")
     
     // JPA Annotations (구현체 X)
     compileOnly("jakarta.persistence:jakarta.persistence-api")
     
-    // Jackson
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
-    
     // UUID v7
-    implementation("com.github.f4b6a3:uuid-creator:${Versions.uuidCreator}")
+    implementation(Dependencies.uuidCreator)
     
     // Logging
-    implementation("net.logstash.logback:logstash-logback-encoder:${Versions.logstashEncoder}")
+    implementation(Dependencies.logstashLogbackEncoder)
     
-    // Metrics
-    implementation("io.micrometer:micrometer-core")
+    // Test Dependencies
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework:spring-tx")
 }
 
-// 다른 모듈에서 사용할 수 있도록 JAR 생성
+tasks.withType<BootJar> {
+    enabled = false
+}
+
 tasks.jar {
     enabled = true
-}
-
-// common-library는 라이브러리 모듈이므로 bootJar 생성하지 않음
-tasks.withType<org.springframework.boot.gradle.tasks.bundling.BootJar> {
-    enabled = false
 }

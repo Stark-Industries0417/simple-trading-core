@@ -1,0 +1,62 @@
+spring:
+  application:
+    name: market-data-generator
+  
+  # 이벤트 발행을 위한 설정
+  task:
+    execution:
+      pool:
+        core-size: 2
+        max-size: 10
+        queue-capacity: 100
+    scheduling:
+      pool:
+        size: 2
+
+server:
+  port: 8085
+  
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+      
+logging:
+  level:
+    com.trading.marketdata: DEBUG
+    org.springframework: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    
+# Market Data Generator 설정
+market:
+  data:
+    enabled: true
+    update-interval-ms: 1000  # 1초마다 시세 생성
+    startup-delay: PT1S  # 1초 후 시작
+    default-initial-price: 100.00
+    min-price: 1.00
+    max-price: 10000.00
+    default-volatility: 0.02
+    symbols:
+      - AAPL
+      - GOOGL
+      - MSFT
+      - AMZN
+      - TSLA
+    initial-prices:
+      AAPL: 150.00
+      GOOGL: 2800.00
+      MSFT: 380.00
+      AMZN: 3400.00
+      TSLA: 250.00
+    symbol-volatility:
+      AAPL: 0.015
+      GOOGL: 0.020
+      MSFT: 0.018
+      AMZN: 0.025
+      TSLA: 0.035

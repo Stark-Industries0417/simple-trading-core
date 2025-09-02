@@ -9,14 +9,14 @@ class InsufficientBalanceException(
     cause: Throwable? = null,
     val requiredAmount: BigDecimal? = null,
     val availableAmount: BigDecimal? = null,
-    context: Map<String, Any> = emptyMap()
+    context: MutableMap<String, Any> = mutableMapOf()
 ) : BusinessException(
     message = message,
     cause = cause,
     errorCode = "INSUFFICIENT_BALANCE",
-    context = buildMap {
-        putAll(context)
-        requiredAmount?.let { put("requiredAmount", it) }
-        availableAmount?.let { put("availableAmount", it) }
-    }.toMutableMap()
+    context = mutableMapOf<String, Any>().also { map ->
+        map.putAll(context)
+        requiredAmount?.let { map["requiredAmount"] = it }
+        availableAmount?.let { map["availableAmount"] = it }
+    }
 )

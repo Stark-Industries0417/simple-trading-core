@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: matching-engine-service
+    
+server:
+  port: 8082
+  
+matching:
+  engine:
+    worker-threads: 4
+    queue-capacity: 10000
+    max-orders-per-symbol: 1000
+    
+  backpressure:
+    threshold: 0.8
+    check-interval-ms: 1000
+    
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+      
+logging:
+  level:
+    com.trading.matching: DEBUG
+    org.springframework: INFO

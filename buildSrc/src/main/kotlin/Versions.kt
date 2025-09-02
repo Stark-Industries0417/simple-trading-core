@@ -3,7 +3,6 @@ object Versions {
     const val springBoot = "3.2.0"
     const val springDependencyManagement = "1.1.4"
     
-    // 라이브러리
     const val uuidCreator = "5.3.2"
     const val guava = "32.1.3-jre"
     const val logstashEncoder = "7.4"
