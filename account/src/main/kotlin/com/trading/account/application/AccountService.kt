@@ -3,10 +3,7 @@ package com.trading.account.application
 import com.trading.account.domain.*
 import com.trading.account.infrastructure.persistence.AccountRepository
 import com.trading.account.infrastructure.persistence.StockHoldingRepository
-import com.trading.common.dto.account.AccountDTO
-import com.trading.common.event.account.AccountUpdatedEvent
-import com.trading.common.event.account.AccountUpdateFailedEvent
-import com.trading.common.event.base.EventPublisher
+
 import com.trading.common.event.matching.TradeExecutedEvent
 import com.trading.common.exception.account.InsufficientBalanceException
 import com.trading.common.logging.StructuredLogger
@@ -23,7 +20,6 @@ class AccountService(
     private val accountRepository: AccountRepository,
     private val stockHoldingRepository: StockHoldingRepository,
     private val transactionLogRepository: TransactionLogRepository,
-    private val eventPublisher: EventPublisher,
     private val structuredLogger: StructuredLogger,
     private val uuidGenerator: UUIDv7Generator
 ) {
@@ -99,8 +95,6 @@ class AccountService(
             stockHoldingRepository.save(sellerHolding)
             transactionLogRepository.saveAll(listOf(buyLog, sellLog))
             
-            publishAccountUpdatedEvent(buyerAccount, sellerAccount, event.tradeId, event.traceId)
-            
             val duration = System.currentTimeMillis() - startTime
             structuredLogger.info("Trade execution completed",
                 mapOf(
@@ -168,41 +162,28 @@ class AccountService(
         return result
     }
     
-    private fun publishAccountUpdatedEvent(
-        buyerAccount: Account, 
-        sellerAccount: Account, 
-        tradeId: String,
-        traceId: String
-    ) {
-        eventPublisher.publish(
-            AccountUpdatedEvent(
-                eventId = uuidGenerator.generate(),
-                aggregateId = tradeId,
-                occurredAt = Instant.now(),
-                traceId = traceId,
-                account = AccountDTO(
-                    userId = buyerAccount.userId,
-                    cashBalance = buyerAccount.getCashBalance(),
-                    availableCash = buyerAccount.getAvailableCash()
-                ),
-                relatedTradeId = tradeId
+    fun releaseReservation(userId: String, orderId: String, traceId: String): Boolean {
+        return try {
+            structuredLogger.info("Processing reservation release",
+                mapOf(
+                    "userId" to userId,
+                    "orderId" to orderId,
+                    "traceId" to traceId
+                )
             )
-        )
-        
-        eventPublisher.publish(
-            AccountUpdatedEvent(
-                eventId = uuidGenerator.generate(),
-                aggregateId = tradeId,
-                occurredAt = Instant.now(),
-                traceId = traceId,
-                account = AccountDTO(
-                    userId = sellerAccount.userId,
-                    cashBalance = sellerAccount.getCashBalance(),
-                    availableCash = sellerAccount.getAvailableCash()
+            
+            true
+        } catch (ex: Exception) {
+            structuredLogger.error("Failed to release reservation",
+                mapOf(
+                    "userId" to userId,
+                    "orderId" to orderId,
+                    "traceId" to traceId
                 ),
-                relatedTradeId = tradeId
+                ex
             )
-        )
+            false
+        }
     }
     
     private fun handleBusinessFailure(
@@ -213,20 +194,6 @@ class AccountService(
             mapOf(
                 "tradeId" to event.tradeId,
                 "reason" to (ex.message ?: "Unknown")
-            )
-        )
-        
-        eventPublisher.publish(
-            AccountUpdateFailedEvent(
-                eventId = uuidGenerator.generate(),
-                aggregateId = event.tradeId,
-                occurredAt = Instant.now(),
-                traceId = event.traceId,
-                userId = event.buyUserId,
-                relatedTradeId = event.tradeId,
-                failureReason = ex.message ?: "Unknown",
-                amount = event.price * event.quantity,
-                shouldRetry = false
             )
         )
         
@@ -258,20 +225,6 @@ class AccountService(
         structuredLogger.error("System failure",
             mapOf("tradeId" to event.tradeId),
             ex
-        )
-        
-        eventPublisher.publish(
-            AccountUpdateFailedEvent(
-                eventId = uuidGenerator.generate(),
-                aggregateId = event.tradeId,
-                occurredAt = Instant.now(),
-                traceId = event.traceId,
-                userId = event.buyUserId,
-                relatedTradeId = event.tradeId,
-                failureReason = "System failure: ${ex.message}",
-                amount = event.price * event.quantity,
-                shouldRetry = false
-            )
         )
         
         return AccountUpdateResult.Failure(
