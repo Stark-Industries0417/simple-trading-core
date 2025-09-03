@@ -1,12 +1,13 @@
 package com.trading.common.outbox
 
+import com.trading.common.util.UUIDv7Generator
 import jakarta.persistence.*
 import java.time.Instant
 
 @MappedSuperclass
 abstract class OutboxEvent(
     @Id
-    val eventId: String = generateEventId(),
+    val eventId: String = UUIDv7Generator.generate(),
     
     val aggregateId: String,
     val aggregateType: String,
@@ -23,15 +24,7 @@ abstract class OutboxEvent(
     
     @Version
     var version: Long = 0
-) {
-    companion object {
-        fun generateEventId(): String {
-            // Simple UUID v4 generation for now
-            // In production, consider using UUIDv7 for better timestamp ordering
-            return java.util.UUID.randomUUID().toString()
-        }
-    }
-}
+)
 
 enum class OutboxStatus {
     PENDING,    // 발행 대기
