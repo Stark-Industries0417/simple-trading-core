@@ -3,13 +3,15 @@ package com.trading.order.application
 import com.trading.common.dto.order.OrderSide
 import com.trading.common.dto.order.OrderStatus
 import com.trading.common.dto.order.OrderType
-import com.trading.common.event.base.EventPublisher
 import com.trading.common.exception.order.OrderNotFoundException
 import com.trading.common.exception.order.OrderValidationException
 import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.UUIDv7Generator
 import com.trading.order.domain.*
 import com.trading.order.infrastructure.web.dto.CreateOrderRequest
+import com.trading.order.infrastructure.outbox.OrderOutboxRepository
+import com.trading.order.infrastructure.outbox.OrderOutboxEvent
+import com.fasterxml.jackson.databind.ObjectMapper
 import io.mockk.*
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
@@ -22,27 +24,33 @@ class OrderServiceTest {
     private lateinit var orderService: OrderService
     private lateinit var orderRepository: OrderRepository
     private lateinit var orderValidator: OrderValidator
-    private lateinit var eventPublisher: EventPublisher
     private lateinit var structuredLogger: StructuredLogger
     private lateinit var uuidGenerator: UUIDv7Generator
     private lateinit var orderMetrics: OrderMetrics
+    private lateinit var outboxRepository: OrderOutboxRepository
+    private lateinit var objectMapper: ObjectMapper
 
     @BeforeEach
     fun setUp() {
         orderRepository = mockk()
         orderValidator = mockk()
-        eventPublisher = mockk()
         structuredLogger = mockk(relaxed = true)
         uuidGenerator = mockk()
         orderMetrics = mockk(relaxed = true)
+        outboxRepository = mockk()
+        objectMapper = mockk(relaxed = true)
 
         orderService = OrderService(
-            orderRepository, orderValidator, eventPublisher,
-            structuredLogger, uuidGenerator, orderMetrics
+            orderRepository, orderValidator,
+            structuredLogger, uuidGenerator, orderMetrics,
+            outboxRepository, objectMapper
         )
 
         every { uuidGenerator.generateOrderId() } returns "ORDER-123"
         every { uuidGenerator.generateEventId() } returns "EVENT-456"
+        every { outboxRepository.save(any<OrderOutboxEvent>()) } answers { 
+            firstArg<OrderOutboxEvent>()
+        }
     }
 
     @Test
@@ -71,7 +79,6 @@ class OrderServiceTest {
 
         every { orderValidator.validateOrThrow(any()) } just Runs
         every { orderRepository.save(any()) } returns order
-        every { eventPublisher.publish(any()) } just Runs
 
         // When
         val result = orderService.createOrder(request, userId, traceId)
@@ -83,7 +90,7 @@ class OrderServiceTest {
 
         verify(exactly = 1) { orderValidator.validateOrThrow(any()) }
         verify(exactly = 1) { orderRepository.save(any()) }
-        verify(exactly = 1) { eventPublisher.publish(any()) }
+        verify(exactly = 1) { outboxRepository.save(any()) }
         verify(exactly = 1) { orderMetrics.recordOrderCreation(any()) }
     }
 
@@ -111,7 +118,7 @@ class OrderServiceTest {
 
         verify(exactly = 1) { orderMetrics.incrementValidationFailures() }
         verify(exactly = 0) { orderRepository.save(any()) }
-        verify(exactly = 0) { eventPublisher.publish(any()) }
+        verify(exactly = 0) { outboxRepository.save(any()) }
     }
 
     @Test
@@ -130,7 +137,6 @@ class OrderServiceTest {
 
         every { orderRepository.findByIdAndUserId(orderId, userId) } returns order
         every { orderRepository.save(any()) } returns order
-        every { eventPublisher.publish(any()) } just Runs
 
         // When
         val result = orderService.cancelOrder(orderId, userId, reason)
@@ -140,7 +146,7 @@ class OrderServiceTest {
 
         verify(exactly = 1) { order.cancel(reason) }
         verify(exactly = 1) { orderRepository.save(order) }
-        verify(exactly = 1) { eventPublisher.publish(any()) }
+        verify(exactly = 1) { outboxRepository.save(any()) }
     }
 
     @Test
@@ -157,11 +163,11 @@ class OrderServiceTest {
         }
 
         verify(exactly = 0) { orderRepository.save(any()) }
-        verify(exactly = 0) { eventPublisher.publish(any()) }
+        verify(exactly = 0) { outboxRepository.save(any()) }
     }
 
     @Test
-    fun `이벤트 발행 실패해도 주문 생성은 성공`() {
+    fun `주문 생성 성공 - 시장가 매도`() {
         // Given
         val request = CreateOrderRequest(
             symbol = "AAPL",
@@ -186,15 +192,16 @@ class OrderServiceTest {
 
         every { orderValidator.validateOrThrow(any()) } just Runs
         every { orderRepository.save(any()) } returns order
-        every { eventPublisher.publish(any()) } throws RuntimeException("Event bus error")
 
         // When
         val result = orderService.createOrder(request, userId, traceId)
 
-        // Then - 이벤트 발행 실패에도 주문은 생성됨
+        // Then
         assertThat(result.orderId).isEqualTo("ORDER-123")
+        assertThat(result.orderType).isEqualTo(OrderType.MARKET)
+        assertThat(result.side).isEqualTo(OrderSide.SELL)
 
-        verify(exactly = 1) { orderMetrics.incrementEventPublicationFailures() }
-        verify(exactly = 1) { structuredLogger.warn(match { it.contains("Failed to publish") }, any()) }
+        verify(exactly = 1) { orderRepository.save(any()) }
+        verify(exactly = 1) { outboxRepository.save(any()) }
     }
 }
