@@ -15,7 +15,6 @@ import com.trading.order.infrastructure.web.dto.OrderResponse
 import com.trading.order.infrastructure.outbox.OrderOutboxEvent
 import com.trading.order.infrastructure.outbox.OrderOutboxRepository
 import com.fasterxml.jackson.databind.ObjectMapper
-import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -26,16 +25,73 @@ import java.time.Instant
 class OrderService(
     private val orderRepository: OrderRepository,
     private val orderValidator: OrderValidator,
-    private val eventPublisher: EventPublisher,
     private val structuredLogger: StructuredLogger,
     private val uuidGenerator: UUIDv7Generator,
     private val orderMetrics: OrderMetrics,
     private val outboxRepository: OrderOutboxRepository,
     private val objectMapper: ObjectMapper
 ) {
+
     
-    companion object {
-        private val logger = LoggerFactory.getLogger(OrderService::class.java)
+    private fun handlePersistenceException(
+        ex: DataIntegrityViolationException,
+        order: Order?,
+        userId: String,
+        symbol: String,
+        startTime: Long
+    ): Nothing {
+        val duration = System.currentTimeMillis() - startTime
+        orderMetrics.incrementDatabaseErrors()
+        
+        structuredLogger.error("Order persistence failed: constraint violation",
+            buildOrderContext(
+                order = order,
+                userId = userId,
+                symbol = symbol,
+                duration = duration,
+                additionalFields = mapOf(
+                    "error" to (ex.message ?: "Unknown error"),
+                    "constraintViolation" to true
+                )
+            )
+        )
+        
+        val exception = OrderPersistenceException("Failed to save order: constraint violation", ex)
+            .withContext("userId", userId)
+            .withContext("symbol", symbol)
+        order?.id?.let { exception.withContext("orderId", it) }
+        throw exception
+    }
+    
+    private fun handleUnexpectedException(
+        ex: Exception,
+        order: Order?,
+        userId: String,
+        symbol: String,
+        startTime: Long,
+        operation: String
+    ): Nothing {
+        val duration = System.currentTimeMillis() - startTime
+        orderMetrics.incrementUnexpectedErrors()
+        
+        structuredLogger.error("Unexpected error during $operation",
+            buildOrderContext(
+                order = order,
+                userId = userId,
+                symbol = symbol,
+                duration = duration,
+                additionalFields = mapOf(
+                    "error" to (ex.message ?: "Unknown error"),
+                    "exceptionType" to ex.javaClass.simpleName
+                )
+            )
+        )
+        
+        val exception = OrderProcessingException("$operation failed due to unexpected error", ex)
+            .withContext("userId", userId)
+            .withContext("symbol", symbol)
+        order?.id?.let { exception.withContext("orderId", it) }
+        throw exception
     }
     
     fun createOrder(request: CreateOrderRequest, userId: String, traceId: String): OrderResponse {
@@ -43,17 +99,15 @@ class OrderService(
         var order: Order? = null
         
         try {
-            structuredLogger.info("Order creation started",
-                buildMap {
-                    put("userId", userId)
-                    put("symbol", request.symbol)
-                    put("orderType", request.orderType.name)
-                    put("side", request.side.name)
-                    put("quantity", request.quantity.toString())
-                    request.price?.let { put("price", it.toString()) }
-                    put("traceId", traceId)
-                }
-            )
+            structuredLogger.info("Order creation started", buildMap {
+                put("userId", userId)
+                put("symbol", request.symbol)
+                put("orderType", request.orderType.name)
+                put("side", request.side.name)
+                put("quantity", request.quantity.toString())
+                request.price?.let { put("price", it.toString()) }
+                put("traceId", traceId)
+            })
             
             order = Order.create(
                 userId = userId,
@@ -74,78 +128,28 @@ class OrderService(
             orderMetrics.recordOrderCreation(duration)
             
             structuredLogger.info("Order created successfully",
-                buildMap {
-                    put("orderId", savedOrder.id)
-                    put("userId", savedOrder.userId)
-                    put("symbol", savedOrder.symbol)
-                    put("side", savedOrder.side.name)
-                    put("orderType", savedOrder.orderType.name)
-                    put("quantity", savedOrder.quantity.toString())
-                    savedOrder.price?.let { put("price", it.toString()) }
-                    put("status", savedOrder.status.name)
-                    put("duration", duration.toString())
-                    put("version", savedOrder.version.toString())
-                }
+                buildOrderContext(order = savedOrder, duration = duration)
             )
             
-            // Outbox 이벤트 생성 및 저장 - 같은 트랜잭션 내에서
-            val event = createAndSaveOutboxEvent(savedOrder)
-            
-            // 이벤트 발행은 여전히 수행 (점진적 마이그레이션을 위해)
-            publishOrderCreatedEvent(savedOrder)
-            
+            createAndSaveOutboxEvent(savedOrder)
             return OrderResponse.from(savedOrder)
             
         } catch (ex: OrderValidationException) {
             orderMetrics.incrementValidationFailures()
             throw ex.withServiceContext(userId, request.symbol)
         } catch (ex: DataIntegrityViolationException) {
-            val duration = System.currentTimeMillis() - startTime
-            orderMetrics.incrementDatabaseErrors()
-            
-            structuredLogger.error("Order persistence failed: constraint violation",
-                buildMap {
-                    order?.id?.let { put("orderId", it) }
-                    put("userId", userId)
-                    put("symbol", request.symbol)
-                    put("duration", duration.toString())
-                    put("error", ex.message ?: "Unknown error")
-                    put("constraintViolation", true)
-                }
-            )
-            val exception = OrderPersistenceException("Failed to save order: constraint violation", ex)
-                .withContext("userId", userId)
-                .withContext("symbol", request.symbol)
-            order?.id?.let { exception.withContext("orderId", it) }
-            throw exception
+            handlePersistenceException(ex, order, userId, request.symbol, startTime)
         } catch (ex: Exception) {
-            val duration = System.currentTimeMillis() - startTime
-            orderMetrics.incrementUnexpectedErrors()
-
-            structuredLogger.error("Unexpected error during order creation",
-                buildMap {
-                    order?.id?.let { put("orderId", it) }
-                    put("userId", userId)
-                    put("symbol", request.symbol)
-                    put("duration", duration.toString())
-                    put("error", ex.message ?: "Unknown error")
-                    put("exceptionType", ex.javaClass.simpleName)
-                }
-            )
-
-            val exception = OrderProcessingException("Order creation failed due to unexpected error", ex)
-                .withContext("userId", userId)
-                .withContext("symbol", request.symbol)
-            order?.id?.let { exception.withContext("orderId", it) }
-            throw exception
+            handleUnexpectedException(ex, order, userId, request.symbol, startTime, "order creation")
         }
     }
     
     fun cancelOrder(orderId: String, userId: String, reason: String = "User cancelled"): OrderResponse {
         val startTime = System.currentTimeMillis()
+        var order: Order? = null
         
         return try {
-            val order = orderRepository.findByIdAndUserId(orderId, userId)
+            order = orderRepository.findByIdAndUserId(orderId, userId)
                 ?: throw OrderNotFoundException("Order not found: $orderId")
                     .withContext("orderId", orderId)
                     .withContext("userId", userId)
@@ -163,127 +167,24 @@ class OrderService(
             
             val duration = System.currentTimeMillis() - startTime
             structuredLogger.info("Order cancelled successfully",
-                buildMap {
-                    put("orderId", orderId)
-                    put("userId", userId)
-                    put("reason", reason)
-                    put("duration", duration.toString())
-                }
-            )
-            
-            // Outbox 이벤트 생성 및 저장 - 같은 트랜잭션 내에서
-            val event = createAndSaveCancelledOutboxEvent(savedOrder)
-            
-            // 이벤트 발행은 여전히 수행 (점진적 마이그레이션을 위해)
-            publishOrderCancelledEvent(savedOrder)
-            
-            OrderResponse.from(savedOrder)
-            
-        } catch(ex: OrderNotFoundException) {
-          throw ex
-        } catch (ex: DataIntegrityViolationException) {
-            val duration = System.currentTimeMillis() - startTime
-            orderMetrics.incrementDatabaseErrors()
-            
-            structuredLogger.error("Order cancellation failed: constraint violation",
-                buildMap {
-                    put("orderId", orderId)
-                    put("userId", userId)
-                    put("duration", duration.toString())
-                    put("error", ex.message ?: "Unknown error")
-                    put("constraintViolation", true)
-                }
-            )
-            
-            throw OrderPersistenceException("Failed to save cancelled order: constraint violation", ex)
-                .withContext("orderId", orderId)
-                .withContext("userId", userId)
-                
-        } catch (ex: Exception) {
-            val duration = System.currentTimeMillis() - startTime
-            orderMetrics.incrementUnexpectedErrors()
-
-            structuredLogger.error("Unexpected error during order cancellation",
-                buildMap {
-                    put("orderId", orderId)
-                    put("userId", userId)
-                    put("duration", duration.toString())
-                    put("error", ex.message ?: "Unknown error")
-                    put("exceptionType", ex.javaClass.simpleName)
-                }
-            )
-
-            throw OrderProcessingException("Order cancellation failed due to unexpected error", ex)
-                .withContext("orderId", orderId)
-                .withContext("userId", userId)
-        }
-    }
-    
-    private fun publishOrderCreatedEvent(order: Order) {
-        try {
-            val event = OrderCreatedEvent(
-                eventId = uuidGenerator.generateEventId(),
-                aggregateId = order.id,
-                occurredAt = Instant.now(),
-                traceId = order.traceId,
-                order = order.toDTO()
-            )
-            
-            eventPublisher.publish(event)
-            orderMetrics.incrementEventPublications()
-            
-            structuredLogger.info("OrderCreatedEvent published",
-                mapOf(
-                    "eventId" to event.eventId,
-                    "orderId" to order.id,
-                    "traceId" to order.traceId
+                buildOrderContext(
+                    orderId = orderId,
+                    userId = userId,
+                    duration = duration,
+                    additionalFields = mapOf("reason" to reason)
                 )
             )
             
+            createAndSaveCancelledOutboxEvent(savedOrder)
+            OrderResponse.from(savedOrder)
+            
+        } catch(ex: OrderNotFoundException) {
+            throw ex
+        } catch (ex: DataIntegrityViolationException) {
+            handlePersistenceException(ex, order, userId, order?.symbol ?: "", startTime)
+                
         } catch (ex: Exception) {
-            orderMetrics.incrementEventPublicationFailures()
-            structuredLogger.warn("Failed to publish OrderCreatedEvent",
-                buildMap {
-                    put("orderId", order.id)
-                    put("traceId", order.traceId)
-                    put("errorType", ex.javaClass.simpleName)
-                    ex.message?.let { put("error", it) }
-                }
-            )
-        }
-    }
-    
-    private fun publishOrderCancelledEvent(order: Order) {
-        try {
-            val event = OrderCancelledEvent(
-                eventId = uuidGenerator.generateEventId(),
-                aggregateId = order.id,
-                occurredAt = Instant.now(),
-                traceId = order.traceId,
-                orderId = order.id,
-                userId = order.userId,
-                reason = order.cancellationReason ?: "Unknown reason"
-            )
-            
-            eventPublisher.publish(event)
-            
-            structuredLogger.info("OrderCancelledEvent published",
-                buildMap {
-                    put("eventId", event.eventId)
-                    put("orderId", order.id)
-                    put("traceId", order.traceId)
-                }
-            )
-            
-        } catch (ex: Exception) {
-            structuredLogger.warn("Failed to publish OrderCancelledEvent",
-                buildMap {
-                    put("orderId", order.id)
-                    put("traceId", order.traceId)
-                    put("errorType", ex.javaClass.simpleName)
-                    put("error", ex.message ?: "Unknown error")
-                }
-            )
+            handleUnexpectedException(ex, order, userId, order?.symbol ?: "", startTime, "order cancellation")
         }
     }
     
@@ -351,6 +252,34 @@ class OrderService(
         )
         
         return savedOutboxEvent
+    }
+
+    private fun buildOrderContext(
+        order: Order? = null,
+        orderId: String? = null,
+        userId: String? = null,
+        symbol: String? = null,
+        traceId: String? = null,
+        duration: Long? = null,
+        additionalFields: Map<String, Any> = emptyMap()
+    ): Map<String, Any> = buildMap {
+        order?.let {
+            put("orderId", it.id)
+            put("userId", it.userId)
+            put("symbol", it.symbol)
+            put("side", it.side.name)
+            put("orderType", it.orderType.name)
+            put("quantity", it.quantity.toString())
+            it.price?.let { price -> put("price", price.toString()) }
+            put("status", it.status.name)
+            put("version", it.version.toString())
+        }
+        orderId?.let { put("orderId", it) }
+        userId?.let { put("userId", it) }
+        symbol?.let { put("symbol", it) }
+        traceId?.let { put("traceId", it) }
+        duration?.let { put("duration", it.toString()) }
+        putAll(additionalFields)
     }
 }
 
