@@ -10,15 +10,16 @@ plugins {
 dependencies {
     implementation(project(":common-library"))
 
-    // Spring Boot Data (Web, Actuator는 루트로 이동)
     implementation(Dependencies.springBootStarterDataJpa)
+    
+    implementation("org.springframework.kafka:spring-kafka")
+    implementation("org.apache.kafka:kafka-clients:3.8.0")
 
-    // DB
     runtimeOnly(Dependencies.h2Database)
     runtimeOnly(Dependencies.mysqlConnector)
 
-    // 테스트
     testImplementation(Dependencies.testcontainersMysql)
+    testImplementation("org.springframework.kafka:spring-kafka-test")
 }
 
 tasks.jar {

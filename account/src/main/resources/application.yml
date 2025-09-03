@@ -21,6 +21,20 @@ spring:
       enabled: true
       path: /h2-console
 
+# Kafka Configuration
+kafka:
+  bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  consumer:
+    group-id: account-service-group
+    auto-offset-reset: earliest
+    enable-auto-commit: false
+    isolation-level: read_committed
+    max-poll-records: 100
+    session-timeout-ms: 30000
+  
+  topics:
+    order-events: order.events
+
 server:
   port: 8083
   
