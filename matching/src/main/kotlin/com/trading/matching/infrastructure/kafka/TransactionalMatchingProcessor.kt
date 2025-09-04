@@ -81,39 +81,31 @@ class TransactionalMatchingProcessor(
     }
     
     private fun createConsumerProperties() = Properties().apply {
-        // Connection
         put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaProperties.bootstrapServers)
         put(ConsumerConfig.GROUP_ID_CONFIG, kafkaProperties.consumer.groupId)
-        
-        // Serialization
+
         put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer::class.java)
         put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer::class.java)
-        
-        // Transactional semantics
+
         put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false)
         put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed")
-        
-        // Performance tuning
+
         put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, kafkaProperties.consumer.autoOffsetReset)
         put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, kafkaProperties.consumer.maxPollRecords)
         put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, kafkaProperties.consumer.sessionTimeoutMs)
     }
     
     private fun createProducerProperties() = Properties().apply {
-        // Connection
         put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaProperties.bootstrapServers)
-        
-        // Serialization
+
         put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer::class.java)
         put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer::class.java)
-        
-        // Transactional configuration
+
         put(ProducerConfig.TRANSACTIONAL_ID_CONFIG, transactionalId)
         put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true)
         put(ProducerConfig.ACKS_CONFIG, kafkaProperties.producer.acks)
         put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, kafkaProperties.producer.maxInFlightRequestsPerConnection)
-        
-        // Performance tuning
+
         put(ProducerConfig.RETRIES_CONFIG, kafkaProperties.producer.retries)
         put(ProducerConfig.BATCH_SIZE_CONFIG, kafkaProperties.producer.batchSize)
         put(ProducerConfig.LINGER_MS_CONFIG, kafkaProperties.producer.lingerMs)
@@ -140,8 +132,7 @@ class TransactionalMatchingProcessor(
     
     private fun processRecordsBatch(records: ConsumerRecords<String, String>) {
         val startTime = System.currentTimeMillis()
-        
-        // Start transaction
+
         producer.beginTransaction()
         
         try {
@@ -163,17 +154,14 @@ class TransactionalMatchingProcessor(
                         record.offset(),
                         record.partition()
                     )
-                    
-                    // Process order through matching engine
+
                     val trades = processOrder(orderEvent)
-                    
-                    // Publish trade events within transaction
                     trades.forEach { trade ->
                         val tradeEvent = createTradeEvent(trade, orderEvent.traceId)
                         
                         val tradeRecord = ProducerRecord(
                             kafkaProperties.topics.tradeEvents,
-                            trade.symbol, // Use symbol as partition key
+                            trade.symbol,
                             objectMapper.writeValueAsString(tradeEvent)
                         )
                         
@@ -189,8 +177,7 @@ class TransactionalMatchingProcessor(
                             orderEvent.traceId
                         )
                     }
-                    
-                    // Record offset for this partition
+
                     val topicPartition = TopicPartition(record.topic(), record.partition())
                     processedOffsets[topicPartition] = OffsetAndMetadata(record.offset() + 1)
                     
@@ -201,14 +188,11 @@ class TransactionalMatchingProcessor(
                         record.partition(),
                         e
                     )
-                    throw e // Rethrow to abort transaction
+                    throw e
                 }
             }
-            
-            // Commit offsets within transaction
+
             producer.sendOffsetsToTransaction(processedOffsets, consumer.groupMetadata())
-            
-            // Commit transaction
             producer.commitTransaction()
             
             val processingTime = System.currentTimeMillis() - startTime
@@ -220,21 +204,16 @@ class TransactionalMatchingProcessor(
             )
             
         } catch (e: Exception) {
-            // Abort transaction on any error
             producer.abortTransaction()
-            
             logger.error(
                 "Transaction aborted due to error - recordCount: {}",
                 records.count(),
                 e
             )
-            
-            // The next poll will retry from the last committed offset
         }
     }
     
     private fun processOrder(event: OrderCreatedEvent): List<Trade> {
-        // Process order and get trades
         val trades = matchingEngineManager.processOrderWithResult(event.order, event.traceId)
         
         if (trades.isEmpty()) {
