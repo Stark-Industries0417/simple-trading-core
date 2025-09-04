@@ -7,10 +7,10 @@ include(
     "order",
     "matching",
     "account",
-    "app"  // 메인 애플리케이션 모듈
+    "cdc",
+    "app"
 )
 
-// 빌드 캐시 활성화 (빌드 속도 개선)
 buildCache {
     local {
         isEnabled = true

@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: cdc-module-test
+  
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+    time-zone: UTC
+
+# Test CDC Configuration
+cdc:
+  database:
+    hostname: localhost
+    port: 3306
+    name: trading_core_test
+    username: test
+    password: test
+  
+  kafka:
+    bootstrap-servers: localhost:9093
+    order-events-topic: test.order.events
+    schema-history-topic: test.dbhistory.order
+  
+  debezium:
+    server-id: "999999"
+    server-name: "test-order-service"
+    offset-storage-file-name: "/tmp/test-offsets.dat"
+    offset-flush-interval-ms: 100
+    poll-interval-ms: 50
+    max-batch-size: 10
+    snapshot-mode: never
+
+# Disable actual Debezium engine for unit tests
+logging:
+  level:
+    root: WARN
+    com.trading.cdc: INFO
+    io.debezium: WARN
