@@ -2,6 +2,12 @@ CREATE DATABASE IF NOT EXISTS trading_core;
 USE trading_core;
 
 -- ========================================
+-- CDC User Permissions
+-- ========================================
+-- Root user already has all privileges, just flush to ensure
+FLUSH PRIVILEGES;
+
+-- ========================================
 -- Order Module Tables
 -- ========================================
 
