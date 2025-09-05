@@ -19,6 +19,9 @@ dependencies {
     // JPA Annotations (구현체 X)
     compileOnly("jakarta.persistence:jakarta.persistence-api")
     
+    // Spring Data JPA for Repository interfaces
+    compileOnly("org.springframework.data:spring-data-jpa")
+    
     // UUID v7
     implementation(Dependencies.uuidCreator)
     

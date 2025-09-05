@@ -13,6 +13,9 @@ dependencies {
 
     // Spring Boot Data (Web, Validation, Actuator는 루트로 이동)
     implementation(Dependencies.springBootStarterDataJpa)
+    
+    // Kafka
+    implementation("org.springframework.kafka:spring-kafka")
 
     // DB
     runtimeOnly(Dependencies.h2Database)
