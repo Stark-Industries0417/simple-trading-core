@@ -9,9 +9,6 @@ import jakarta.persistence.*
 import java.math.BigDecimal
 import java.time.Instant
 
-
-
-
 @Entity
 @Table(
     name = "orders",
@@ -44,7 +41,7 @@ class Order private constructor(
     @Column(nullable = false, precision = 19, scale = 8)
     val quantity: BigDecimal,
     
-    @Column(precision = 19, scale = 2) // 가격은 소수점 2자리까지
+    @Column(precision = 19, scale = 2)
     val price: BigDecimal?,
     
     @Enumerated(EnumType.STRING)
@@ -67,7 +64,10 @@ class Order private constructor(
     var filledQuantity: BigDecimal = BigDecimal.ZERO,
     
     @Column(length = 500)
-    var cancellationReason: String? = null
+    var cancellationReason: String? = null,
+    
+    @Column
+    var filledAt: Instant? = null
 ) {
     companion object {
         fun create(
