@@ -52,3 +52,11 @@ logging:
     com.trading.account: DEBUG
     org.springframework.transaction: DEBUG
     org.hibernate.SQL: DEBUG
+
+saga:
+  timeouts:
+    order: 30
+    matching: 10
+    account: 5
+  scheduler:
+    check-interval: 2000

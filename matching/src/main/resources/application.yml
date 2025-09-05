@@ -40,11 +40,8 @@ matching:
     worker-threads: 4
     queue-capacity: 10000
     max-orders-per-symbol: 1000
-  
-  # Thread pool configuration for matching workers
   thread-pool-size: ${MATCHING_THREAD_POOL_SIZE:16}
-  
-  # Kafka transactional processing configuration
+
   kafka:
     transactional-id-prefix: matching-engine-
     processing:
@@ -69,3 +66,11 @@ logging:
   level:
     com.trading.matching: DEBUG
     org.springframework: INFO
+
+saga:
+  timeouts:
+    order: 30
+    matching: 10
+    account: 5
+  scheduler:
+    check-interval: 3000

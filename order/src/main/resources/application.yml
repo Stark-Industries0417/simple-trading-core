@@ -39,3 +39,24 @@ logging:
     com.trading.order: DEBUG
     org.springframework.web: INFO
     org.hibernate.SQL: DEBUG
+
+kafka:
+  bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  producer:
+    key-serializer: org.apache.kafka.common.serialization.StringSerializer
+    value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    acks: all
+    retries: 3
+  consumer:
+    group-id: order-saga-group
+    auto-offset-reset: earliest
+    key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+saga:
+  timeouts:
+    order: 30
+    matching: 10
+    account: 5
+  scheduler:
+    check-interval: 5000
