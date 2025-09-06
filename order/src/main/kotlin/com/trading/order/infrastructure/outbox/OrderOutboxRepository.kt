@@ -11,7 +11,7 @@ import java.time.Instant
 @Repository
 interface OrderOutboxRepository : JpaRepository<OrderOutboxEvent, String> {
     
-    fun findByStatusOrderByCreatedAtAsc(status: OutboxStatus): List<OrderOutboxEvent>
+    fun findByStatus(status: OutboxStatus): List<OrderOutboxEvent>
     
     fun findByOrderId(orderId: String): List<OrderOutboxEvent>
     
@@ -28,4 +28,11 @@ interface OrderOutboxRepository : JpaRepository<OrderOutboxEvent, String> {
         @Param("status") status: OutboxStatus,
         @Param("cutoffTime") cutoffTime: Instant
     ): List<OrderOutboxEvent>
+    
+    fun findBySagaId(sagaId: String): OrderOutboxEvent?
+    
+    fun findBySagaIdAndEventType(sagaId: String, eventType: String): OrderOutboxEvent?
+    
+    @Query("SELECT e FROM OrderOutboxEvent e WHERE e.sagaId IS NOT NULL AND e.status = 'PENDING' AND e.createdAt < :timeoutTime")
+    fun findTimedOutSagas(@Param("timeoutTime") timeoutTime: Instant): List<OrderOutboxEvent>
 }
