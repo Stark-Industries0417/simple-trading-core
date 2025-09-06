@@ -1,11 +1,11 @@
 package com.trading.order.application
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.trading.common.domain.saga.SagaStatus
-import com.trading.common.dto.order.OrderSide
 import com.trading.common.dto.order.OrderStatus
-import com.trading.common.dto.order.OrderType
+import com.trading.common.event.base.DomainEvent
+import com.trading.common.outbox.OutboxStatus
 import com.trading.common.event.order.OrderCreatedEvent
+import com.trading.common.event.order.OrderCancelledEvent
 import com.trading.common.event.saga.AccountUpdatedEvent
 import com.trading.common.event.saga.AccountUpdateFailedEvent
 import com.trading.common.event.saga.SagaTimeoutEvent
@@ -17,15 +17,14 @@ import com.trading.common.util.UUIDv7Generator
 import com.trading.order.domain.Order
 import com.trading.order.domain.OrderRepository
 import com.trading.order.domain.OrderValidator
-import com.trading.order.domain.saga.OrderSagaRepository
-import com.trading.order.domain.saga.OrderSagaState
 import com.trading.order.domain.toDTO
+import com.trading.order.infrastructure.outbox.OrderOutboxEvent
+import com.trading.order.infrastructure.outbox.OrderOutboxRepository
 import com.trading.order.infrastructure.web.dto.CreateOrderRequest
 import com.trading.order.infrastructure.web.dto.OrderResponse
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.kafka.annotation.KafkaListener
-import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -36,8 +35,7 @@ import java.util.*
 @Transactional
 class OrderSagaService(
     private val orderRepository: OrderRepository,
-    private val sagaRepository: OrderSagaRepository,
-    private val kafkaTemplate: KafkaTemplate<String, String>,
+    private val outboxRepository: OrderOutboxRepository,
     private val objectMapper: ObjectMapper,
     private val structuredLogger: StructuredLogger,
     private val uuidGenerator: UUIDv7Generator,
@@ -76,23 +74,8 @@ class OrderSagaService(
             orderValidator.validateOrThrow(order)
             val savedOrder = orderRepository.save(order)
 
-            val sagaState = OrderSagaState(
-                sagaId = uuidGenerator.generateEventId(),
-                orderId = savedOrder.id,
-                tradeId = uuidGenerator.generateEventId(),
-                state = SagaStatus.STARTED,
-                timeoutAt = Instant.now().plusSeconds(orderTimeoutSeconds),
-                metadata = objectMapper.writeValueAsString(mapOf(
-                    "orderId" to savedOrder.id,
-                    "userId" to savedOrder.userId,
-                    "symbol" to savedOrder.symbol,
-                    "quantity" to savedOrder.quantity.toString(),
-                    "price" to savedOrder.price?.toString(),
-                    "side" to savedOrder.side.name,
-                    "orderType" to savedOrder.orderType.name
-                ))
-            )
-            val savedSaga = sagaRepository.save(sagaState)
+            val sagaId = uuidGenerator.generateEventId()
+            val tradeId = uuidGenerator.generateEventId()
 
             val event = OrderCreatedEvent(
                 eventId = uuidGenerator.generateEventId(),
@@ -102,16 +85,18 @@ class OrderSagaService(
                 order = savedOrder.toDTO()
             )
 
-            kafkaTemplate.send(
-                "order.events",
-                savedOrder.symbol,
-                objectMapper.writeValueAsString(event)
+            publishEventToOutbox(
+                event = event,
+                orderId = savedOrder.id,
+                userId = savedOrder.userId,
+                sagaId = sagaId,
+                tradeId = tradeId
             )
 
             val duration = System.currentTimeMillis() - startTime
             structuredLogger.info("Order created with saga",
                 buildMap {
-                    put("sagaId", savedSaga.sagaId)
+                    put("sagaId", sagaId)
                     put("orderId", savedOrder.id)
                     put("userId", userId)
                     put("symbol", savedOrder.symbol)
@@ -128,6 +113,55 @@ class OrderSagaService(
         } catch (ex: Exception) {
             handleUnexpectedException(ex, order, userId, request.symbol, startTime, "order creation")
         }
+    }
+
+    fun cancelOrderWithSaga(orderId: String, userId: String, reason: String, traceId: String) {
+        val order = orderRepository.findById(orderId).orElseThrow {
+            OrderProcessingException("Order not found: $orderId")
+                .withContext("orderId", orderId)
+                .withContext("userId", userId)
+        }
+
+        if (order.userId != userId) {
+            throw OrderValidationException("Unauthorized to cancel this order")
+                .withServiceContext(userId, order.symbol)
+        }
+
+        if (order.status !in listOf(OrderStatus.CREATED, OrderStatus.PARTIALLY_FILLED)) {
+            throw OrderValidationException("Order cannot be cancelled in status: ${order.status}")
+                .withServiceContext(userId, order.symbol)
+        }
+
+        order.cancel(reason)
+        orderRepository.save(order)
+
+        val cancelEvent = OrderCancelledEvent(
+            eventId = uuidGenerator.generateEventId(),
+            aggregateId = order.id,
+            occurredAt = Instant.now(),
+            traceId = traceId,
+            orderId = order.id,
+            userId = order.userId,
+            reason = reason
+        )
+
+        val compensationSagaId = uuidGenerator.generateEventId()
+        publishEventToOutbox(
+            event = cancelEvent,
+            orderId = order.id,
+            userId = order.userId,
+            sagaId = compensationSagaId
+        )
+
+        structuredLogger.info("Order cancelled with saga compensation",
+            mapOf(
+                "sagaId" to compensationSagaId,
+                "orderId" to orderId,
+                "userId" to userId,
+                "reason" to reason,
+                "traceId" to traceId
+            )
+        )
     }
     
     @KafkaListener(topics = ["account.events"], groupId = "order-saga-group")
@@ -157,31 +191,26 @@ class OrderSagaService(
     }
     
     private fun completeOrder(event: AccountUpdatedEvent) {
-        val saga = sagaRepository.findBySagaId(event.sagaId)
-        if (saga == null) {
-            structuredLogger.warn("Saga not found for AccountUpdated event",
+        val order = orderRepository.findById(event.orderId).orElse(null)
+        if (order == null) {
+            structuredLogger.warn("Order not found for AccountUpdated event",
                 mapOf("sagaId" to event.sagaId, "orderId" to event.orderId)
             )
             return
         }
-        
-        val order = orderRepository.findById(saga.orderId).orElse(null)
-        if (order == null) {
-            structuredLogger.warn("Order not found for saga",
-                mapOf("sagaId" to event.sagaId, "orderId" to saga.orderId)
-            )
-            return
-        }
-        
-        
+
         order.status = OrderStatus.COMPLETED
         order.filledQuantity = event.quantity
         order.filledAt = Instant.now()
         orderRepository.save(order)
-        
-        
-        saga.markCompleted()
-        sagaRepository.save(saga)
+
+        outboxRepository.findBySagaId(event.sagaId)?.let { outboxEvent ->
+            outboxRepository.updateStatus(
+                eventId = outboxEvent.eventId,
+                status = OutboxStatus.PROCESSED,
+                processedAt = Instant.now()
+            )
+        }
         
         structuredLogger.info("Order completed through saga",
             mapOf(
@@ -194,18 +223,10 @@ class OrderSagaService(
     }
     
     private fun cancelOrder(event: AccountUpdateFailedEvent) {
-        val saga = sagaRepository.findBySagaId(event.sagaId)
-        if (saga == null) {
-            structuredLogger.warn("Saga not found for AccountUpdateFailed event",
-                mapOf("sagaId" to event.sagaId, "orderId" to event.orderId)
-            )
-            return
-        }
-        
-        val order = orderRepository.findById(saga.orderId).orElse(null)
+        val order = orderRepository.findById(event.orderId).orElse(null)
         if (order == null) {
-            structuredLogger.warn("Order not found for saga",
-                mapOf("sagaId" to event.sagaId, "orderId" to saga.orderId)
+            structuredLogger.warn("Order not found for AccountUpdateFailed event",
+                mapOf("sagaId" to event.sagaId, "orderId" to event.orderId)
             )
             return
         }
@@ -213,8 +234,13 @@ class OrderSagaService(
         order.cancel(event.reason)
         orderRepository.save(order)
 
-        saga.markCompensated()
-        sagaRepository.save(saga)
+        outboxRepository.findBySagaId(event.sagaId)?.let { outboxEvent ->
+            outboxRepository.updateStatus(
+                eventId = outboxEvent.eventId,
+                status = OutboxStatus.FAILED,
+                processedAt = Instant.now()
+            )
+        }
         
         structuredLogger.info("Order cancelled due to account failure",
             mapOf(
@@ -228,19 +254,17 @@ class OrderSagaService(
     
     @Scheduled(fixedDelay = 5000)
     fun checkTimeouts() {
-        val timedOutSagas = sagaRepository.findTimedOutSagas(
-            listOf(SagaStatus.STARTED, SagaStatus.IN_PROGRESS),
-            Instant.now()
-        )
+        val timeoutTime = Instant.now().minusSeconds(orderTimeoutSeconds)
+        val timedOutSagas = outboxRepository.findTimedOutSagas(timeoutTime)
         
-        timedOutSagas.forEach { saga ->
+        timedOutSagas.forEach { outboxEvent ->
             try {
-                handleTimeout(saga)
+                handleTimeout(outboxEvent)
             } catch (e: Exception) {
                 structuredLogger.error("Error handling saga timeout",
                     mapOf(
-                        "sagaId" to saga.sagaId,
-                        "orderId" to saga.orderId,
+                        "sagaId" to (outboxEvent.sagaId ?: ""),
+                        "orderId" to outboxEvent.orderId,
                         "error" to (e.message ?: "Unknown error")
                     )
                 )
@@ -248,45 +272,47 @@ class OrderSagaService(
         }
     }
     
-    private fun handleTimeout(saga: OrderSagaState) {
+    private fun handleTimeout(outboxEvent: OrderOutboxEvent) {
         structuredLogger.warn("Order saga timeout detected",
             mapOf(
-                "sagaId" to saga.sagaId,
-                "orderId" to saga.orderId,
-                "state" to saga.state.name
+                "sagaId" to (outboxEvent.sagaId ?: ""),
+                "orderId" to outboxEvent.orderId,
+                "status" to outboxEvent.status.name
             )
         )
         
-        val order = orderRepository.findById(saga.orderId).orElse(null)
+        val order = orderRepository.findById(outboxEvent.orderId).orElse(null)
         if (order != null && order.status == OrderStatus.CREATED) {
             
             order.status = OrderStatus.TIMEOUT
-            order.cancellationReason = "Saga timeout after ${orderTimeoutSeconds} seconds"
+            order.cancellationReason = "Saga timeout after $orderTimeoutSeconds seconds"
             orderRepository.save(order)
         }
         
-        
-        saga.markTimeout()
-        sagaRepository.save(saga)
-        
+        outboxRepository.updateStatus(
+            eventId = outboxEvent.eventId,
+            status = OutboxStatus.FAILED,
+            processedAt = Instant.now()
+        )
         
         val timeoutEvent = SagaTimeoutEvent(
             eventId = uuidGenerator.generateEventId(),
-            aggregateId = saga.orderId,
+            aggregateId = outboxEvent.orderId,
             occurredAt = Instant.now(),
             traceId = order?.traceId ?: "",
-            sagaId = saga.sagaId,
-            orderId = saga.orderId,
-            tradeId = saga.tradeId,
+            sagaId = outboxEvent.sagaId ?: uuidGenerator.generateEventId(),
+            orderId = outboxEvent.orderId,
+            tradeId = outboxEvent.tradeId,
             failedAt = "Order",
             timeoutDuration = orderTimeoutSeconds,
             metadata = mapOf("reason" to "Order processing timeout")
         )
         
-        kafkaTemplate.send(
-            "saga.timeout.events",
-            saga.orderId,
-            objectMapper.writeValueAsString(timeoutEvent)
+        publishEventToOutbox(
+            event = timeoutEvent,
+            orderId = outboxEvent.orderId,
+            userId = order?.userId ?: "",
+            sagaId = outboxEvent.sagaId ?: uuidGenerator.generateEventId()
         )
     }
 
@@ -377,5 +403,68 @@ class OrderSagaService(
         traceId?.let { put("traceId", it) }
         duration?.let { put("duration", it.toString()) }
         putAll(additionalFields)
+    }
+
+    private fun publishEventToOutbox(
+        event: DomainEvent,
+        orderId: String,
+        userId: String,
+        sagaId: String,
+        tradeId: String? = null
+    ) {
+        // 이벤트 타입별 메타데이터 추출
+        val (eventId, aggregateId, tradeId) = extractEventMetadata(event)
+        
+        val outboxEvent = OrderOutboxEvent(
+            eventId = eventId,
+            aggregateId = aggregateId,
+            eventType = event.javaClass.simpleName,
+            payload = objectMapper.writeValueAsString(event),
+            orderId = orderId,
+            userId = userId,
+            sagaId = sagaId,
+            tradeId = tradeId
+        )
+        
+        outboxRepository.save(outboxEvent)
+        
+        structuredLogger.info("Outbox event published",
+            buildMap {
+                put("eventId", eventId)
+                put("eventType", event.javaClass.simpleName)
+                put("sagaId", sagaId)
+                put("orderId", aggregateId)
+                tradeId?.let { put("tradeId", it) }
+                put("topic", "order.events")
+            }
+        )
+    }
+    
+    /**
+     * 이벤트 객체에서 메타데이터 추출
+     */
+    private fun extractEventMetadata(event: Any): Triple<String, String, String?> {
+        return when (event) {
+            is OrderCreatedEvent -> Triple(
+                event.eventId,
+                event.aggregateId,
+                null
+            )
+            is SagaTimeoutEvent -> Triple(
+                event.eventId,
+                event.aggregateId,
+                event.tradeId
+            )
+            is OrderCancelledEvent -> Triple(
+                event.eventId,
+                event.aggregateId,
+                null
+            )
+            else -> Triple(
+                uuidGenerator.generateEventId(),
+                "", // fallback
+                null
+            )
+        }
     }
 }
