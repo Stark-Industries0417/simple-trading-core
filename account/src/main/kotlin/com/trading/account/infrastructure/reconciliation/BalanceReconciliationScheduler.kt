@@ -126,11 +126,12 @@ class BalanceReconciliationScheduler(
         val initialBalance = getInitialBalance(userId)
         
         return logs.fold(initialBalance) { balance, log ->
-            when (log.type) { TransactionType.BUY -> balance - log.amount
-
+            when (log.type) {
+                TransactionType.BUY -> balance - log.amount
                 TransactionType.SELL -> balance + log.amount
                 TransactionType.DEPOSIT -> balance + log.amount
                 TransactionType.WITHDRAWAL -> balance - log.amount
+                TransactionType.ROLLBACK -> balance
             }
         }
     }
