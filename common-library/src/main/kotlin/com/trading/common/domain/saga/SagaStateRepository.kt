@@ -11,7 +11,7 @@ interface SagaStateRepository<T : SagaState> : JpaRepository<T, String> {
     
     fun findBySagaId(sagaId: String): T?
     
-    fun findByOrderId(orderId: String): T?
+    fun findByOrderId(orderId: String): T
     
     fun findByTradeId(tradeId: String): T?
     
