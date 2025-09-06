@@ -37,18 +37,30 @@ class AccountSagaService(
         try {
             val jsonNode = objectMapper.readTree(message)
             val eventType = jsonNode.get("eventType")?.asText()
+            if (eventType == null) {
+                structuredLogger.warn("Unknown event format, no eventType found",
+                    mapOf("message" to message.take(200))
+                )
+                return
+            }
             val sagaId = jsonNode.get("sagaId")?.asText()
             
             when (eventType) {
-                "TradeExecuted" -> {
+                "TradeExecutedEvent" -> {
+                    if (sagaId == null) {
+                        structuredLogger.error("No sagaId found in TradeExecuted event",
+                            mapOf("eventType" to eventType)
+                        )
+                        return
+                    }
                     val event = objectMapper.readValue(message, TradeExecutedEvent::class.java)
-                    processAccountUpdate(event, sagaId ?: "")
+                    processAccountUpdate(event, sagaId)
                 }
-                "TradeRollback" -> {
+                "TradeRollbackEvent" -> {
                     val event = objectMapper.readValue(message, TradeRollbackEvent::class.java)
                     rollbackAccount(event)
                 }
-                "TradeFailed" -> {
+                "TradeFailedEvent" -> {
                     val event = objectMapper.readValue(message, TradeFailedEvent::class.java)
                     handleTradeFailed(event)
                 }
@@ -66,8 +78,18 @@ class AccountSagaService(
     private fun processAccountUpdate(event: TradeExecutedEvent, sagaId: String) {
         val startTime = System.currentTimeMillis()
         
+        structuredLogger.info("Processing TradeExecutedEvent",
+            mapOf(
+                "eventId" to event.eventId,
+                "sagaId" to sagaId,
+                "tradeId" to event.tradeId,
+                "symbol" to event.symbol,
+                "traceId" to event.traceId
+            )
+        )
+        
         val sagaState = AccountSagaState(
-            sagaId = sagaId.ifEmpty { uuidGenerator.generateEventId() },
+            sagaId = sagaId,
             tradeId = event.tradeId,
             orderId = event.buyOrderId,
             state = SagaStatus.IN_PROGRESS,
