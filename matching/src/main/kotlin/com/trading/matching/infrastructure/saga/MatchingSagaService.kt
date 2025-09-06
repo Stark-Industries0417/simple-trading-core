@@ -8,7 +8,6 @@ import com.trading.common.event.order.OrderCancelledEvent
 import com.trading.common.event.order.OrderCreatedEvent
 import com.trading.common.event.saga.TradeFailedEvent
 import com.trading.common.event.saga.TradeRollbackEvent
-import com.trading.common.event.saga.SagaTimeoutEvent
 import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.UUIDv7Generator
 import com.trading.matching.domain.saga.MatchingSagaRepository
@@ -18,7 +17,6 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.kafka.core.KafkaTemplate
-import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -248,57 +246,5 @@ class MatchingSagaService(
         }
         saga.markCompensated()
         sagaRepository.save(saga)
-    }
-    
-    @Scheduled(fixedDelay = 3000)
-    fun checkTimeouts() {
-        val timedOutSagas = sagaRepository.findTimedOutSagas(
-            listOf(SagaStatus.IN_PROGRESS),
-            Instant.now()
-        )
-        timedOutSagas.forEach { saga ->
-            try {
-                handleTimeout(saga)
-            } catch (e: Exception) {
-                structuredLogger.error("Error handling saga timeout",
-                    mapOf(
-                        "sagaId" to saga.sagaId,
-                        "orderId" to saga.orderId,
-                        "error" to (e.message ?: "Unknown error")
-                    )
-                )
-            }
-        }
-    }
-    
-    private fun handleTimeout(saga: MatchingSagaState) {
-        structuredLogger.warn("Matching saga timeout detected",
-            mapOf(
-                "sagaId" to saga.sagaId,
-                "orderId" to saga.orderId,
-                "state" to saga.state.name
-            )
-        )
-        saga.markTimeout()
-        sagaRepository.save(saga)
-
-        val timeoutEvent = SagaTimeoutEvent(
-            eventId = uuidGenerator.generateEventId(),
-            aggregateId = saga.orderId,
-            occurredAt = Instant.now(),
-            traceId = "",
-            sagaId = saga.sagaId,
-            orderId = saga.orderId,
-            tradeId = saga.tradeId,
-            failedAt = "Matching",
-            timeoutDuration = matchingTimeoutSeconds,
-            metadata = mapOf("reason" to "Matching timeout after $matchingTimeoutSeconds seconds")
-        )
-        
-        kafkaTemplate.send(
-            "saga.timeout.events",
-            saga.orderId,
-            objectMapper.writeValueAsString(timeoutEvent)
-        )
     }
 }
