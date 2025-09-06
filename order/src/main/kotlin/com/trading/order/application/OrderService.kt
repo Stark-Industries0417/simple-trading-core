@@ -1,6 +1,5 @@
 package com.trading.order.application
 
-import com.trading.common.event.base.EventPublisher
 import com.trading.common.event.order.OrderCancelledEvent
 import com.trading.common.event.order.OrderCreatedEvent
 import com.trading.common.exception.order.OrderNotFoundException
@@ -16,12 +15,8 @@ import com.trading.order.infrastructure.outbox.OrderOutboxEvent
 import com.trading.order.infrastructure.outbox.OrderOutboxRepository
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.springframework.dao.DataIntegrityViolationException
-import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
 
-@Service
-@Transactional
 class OrderService(
     private val orderRepository: OrderRepository,
     private val orderValidator: OrderValidator,
