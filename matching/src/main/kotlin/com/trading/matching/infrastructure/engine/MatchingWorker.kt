@@ -23,6 +23,7 @@ class MatchingWorker(
     }
     
     private val orderQueue = LinkedBlockingQueue<OrderWithContext>(100_000)
+    private val removeQueue = LinkedBlockingQueue<CancelRequest>(10_000)
     private val orderBooks = ConcurrentHashMap<String, OrderBook>()
     
     private val ordersProcessed = AtomicLong(0)
@@ -42,6 +43,41 @@ class MatchingWorker(
     
     // Store trades temporarily for retrieval
     private val recentTrades = ConcurrentHashMap<String, MutableList<Trade>>()
+    
+    fun cancelOrder(orderId: String, symbol: String, traceId: String = ""): Boolean {
+        return try {
+            val request = CancelRequest(orderId, symbol, traceId)
+            val offered = removeQueue.offer(request)
+            
+            if (!offered) {
+                logger.warn(
+                    "Cancel queue full",
+                    mapOf(
+                        "workerId" to id,
+                        "orderId" to orderId,
+                        "symbol" to symbol,
+                        "queueSize" to removeQueue.size
+                    )
+                )
+                false
+            } else {
+                // Successfully queued for cancellation
+                // Actual cancellation will happen asynchronously in processCancellations()
+                true
+            }
+        } catch (e: Exception) {
+            logger.error(
+                "Failed to submit cancel request",
+                mapOf(
+                    "workerId" to id,
+                    "orderId" to orderId,
+                    "symbol" to symbol,
+                    "error" to e.message
+                )
+            )
+            false
+        }
+    }
     
     fun submitOrder(order: OrderDTO, traceId: String = ""): Boolean {
         return try {
@@ -114,6 +150,10 @@ class MatchingWorker(
     }
     
     private fun processNextBatch() {
+        // Process cancellations first (higher priority)
+        processCancellations()
+        
+        // Then process orders
         val batch = mutableListOf<OrderWithContext>()
         val maxBatchSize = 100
         val timeout = 10L
@@ -136,6 +176,39 @@ class MatchingWorker(
             
             orders.forEach { orderWithContext ->
                 processOrderInternal(orderBook, orderWithContext)
+            }
+        }
+    }
+    
+    private fun processCancellations() {
+        val cancellations = mutableListOf<CancelRequest>()
+        removeQueue.drainTo(cancellations, 10)
+        
+        cancellations.forEach { request ->
+            val orderBook = orderBooks[request.symbol]
+            if (orderBook != null) {
+                val cancelled = orderBook.removeOrderFromBook(request.orderId)
+                if (cancelled) {
+                    logger.info(
+                        "Order cancelled in order book",
+                        mapOf(
+                            "workerId" to id,
+                            "orderId" to request.orderId,
+                            "symbol" to request.symbol,
+                            "traceId" to request.traceId
+                        )
+                    )
+                } else {
+                    logger.debug(
+                        "Order not found in order book",
+                        mapOf(
+                            "workerId" to id,
+                            "orderId" to request.orderId,
+                            "symbol" to request.symbol,
+                            "traceId" to request.traceId
+                        )
+                    )
+                }
             }
         }
     }
@@ -262,6 +335,12 @@ class MatchingWorker(
     
     private data class OrderWithContext(
         val order: OrderDTO,
+        val traceId: String
+    )
+    
+    private data class CancelRequest(
+        val orderId: String,
+        val symbol: String,
         val traceId: String
     )
 }
