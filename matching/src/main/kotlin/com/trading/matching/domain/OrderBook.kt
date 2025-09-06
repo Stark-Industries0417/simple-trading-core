@@ -118,7 +118,7 @@ class OrderBook(
         return trades
     }
     
-    fun cancelOrder(orderId: String): Boolean {
+    fun removeOrderFromBook(orderId: String): Boolean {
         val order = orderMap.remove(orderId) ?: return false
         
         val book = if (order.side == OrderSide.BUY) buyOrders else sellOrders
