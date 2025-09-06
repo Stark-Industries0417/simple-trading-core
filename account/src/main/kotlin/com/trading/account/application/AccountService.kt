@@ -3,6 +3,7 @@ package com.trading.account.application
 import com.trading.account.domain.*
 import com.trading.account.infrastructure.persistence.AccountRepository
 import com.trading.account.infrastructure.persistence.StockHoldingRepository
+import com.trading.account.infrastructure.persistence.TransactionLogRepository
 
 import com.trading.common.event.matching.TradeExecutedEvent
 import com.trading.common.exception.account.InsufficientBalanceException
@@ -186,6 +187,127 @@ class AccountService(
         }
     }
     
+    fun rollbackTradeExecution(
+        tradeId: String,
+        buyUserId: String,
+        sellUserId: String,
+        symbol: String,
+        quantity: BigDecimal,
+        price: BigDecimal,
+        traceId: String
+    ): RollbackResult {
+        val startTime = System.currentTimeMillis()
+        
+        return try {
+            structuredLogger.info("Starting trade rollback",
+                mapOf(
+                    "tradeId" to tradeId,
+                    "buyUserId" to buyUserId,
+                    "sellUserId" to sellUserId,
+                    "symbol" to symbol,
+                    "quantity" to quantity.toString(),
+                    "price" to price.toString(),
+                    "traceId" to traceId
+                )
+            )
+            
+            val sortedUserIds = listOf(buyUserId, sellUserId).sorted()
+            val accounts = sortedUserIds.map { userId ->
+                accountRepository.findByUserIdWithLock(userId)
+                    ?: throw AccountNotFoundException("Account not found during rollback: $userId")
+            }
+            
+            val (buyerAccount, sellerAccount) = if (sortedUserIds[0] == buyUserId) {
+                accounts[0] to accounts[1]
+            } else {
+                accounts[1] to accounts[0]
+            }
+
+            val totalCost = price * quantity
+            buyerAccount.rollbackWithdrawal(totalCost)
+            sellerAccount.rollbackDeposit(totalCost)
+            
+            val buyerHolding = stockHoldingRepository
+                .findByUserIdAndSymbolWithLock(buyUserId, symbol)
+            
+            if (buyerHolding != null) {
+                buyerHolding.rollbackPurchase(quantity, price)
+                stockHoldingRepository.save(buyerHolding)
+            } else {
+                structuredLogger.warn("Buyer holding not found during rollback",
+                    mapOf(
+                        "tradeId" to tradeId,
+                        "buyUserId" to buyUserId,
+                        "symbol" to symbol
+                    )
+                )
+            }
+            
+            val sellerHolding = stockHoldingRepository
+                .findByUserIdAndSymbolWithLock(sellUserId, symbol)
+                ?: StockHolding.create(sellUserId, symbol)
+            
+            sellerHolding.rollbackSale(quantity)
+            stockHoldingRepository.save(sellerHolding)
+            
+            val buyerRollbackLog = TransactionLog.create(
+                userId = buyUserId,
+                tradeId = "$tradeId-rollback",
+                type = TransactionType.ROLLBACK,
+                symbol = symbol,
+                quantity = quantity,
+                price = price,
+                amount = totalCost,
+                balanceBefore = buyerAccount.getCashBalance() - totalCost,
+                balanceAfter = buyerAccount.getCashBalance()
+            )
+            
+            val sellerRollbackLog = TransactionLog.create(
+                userId = sellUserId,
+                tradeId = "$tradeId-rollback",
+                type = TransactionType.ROLLBACK,
+                symbol = symbol,
+                quantity = quantity,
+                price = price,
+                amount = totalCost,
+                balanceBefore = sellerAccount.getCashBalance() + totalCost,
+                balanceAfter = sellerAccount.getCashBalance()
+            )
+            
+            accountRepository.saveAll(listOf(buyerAccount, sellerAccount))
+            transactionLogRepository.saveAll(listOf(buyerRollbackLog, sellerRollbackLog))
+            
+            val duration = System.currentTimeMillis() - startTime
+            structuredLogger.info("Trade rollback completed",
+                mapOf(
+                    "tradeId" to tradeId,
+                    "duration" to duration.toString(),
+                    "buyerNewBalance" to buyerAccount.getCashBalance().toString(),
+                    "sellerNewBalance" to sellerAccount.getCashBalance().toString()
+                )
+            )
+            
+            RollbackResult.Success(
+                buyerNewBalance = buyerAccount.getCashBalance(),
+                sellerNewBalance = sellerAccount.getCashBalance()
+            )
+            
+        } catch (ex: Exception) {
+            structuredLogger.error("Trade rollback failed",
+                mapOf(
+                    "tradeId" to tradeId,
+                    "error" to (ex.message ?: "Unknown error")
+                ),
+                ex
+            )
+            
+            RollbackResult.Failure(
+                reason = ex.message ?: "Rollback failed",
+                exception = ex
+            )
+        }
+    }
+    
     private fun handleBusinessFailure(
         event: TradeExecutedEvent, 
         ex: Exception
@@ -244,6 +366,18 @@ sealed class AccountUpdateResult {
         val reason: String,
         val shouldRetry: Boolean
     ) : AccountUpdateResult()
+}
+
+sealed class RollbackResult {
+    data class Success(
+        val buyerNewBalance: BigDecimal,
+        val sellerNewBalance: BigDecimal
+    ) : RollbackResult()
+    
+    data class Failure(
+        val reason: String,
+        val exception: Exception
+    ) : RollbackResult()
 }
 
 class AccountNotFoundException(message: String) : RuntimeException(message)
