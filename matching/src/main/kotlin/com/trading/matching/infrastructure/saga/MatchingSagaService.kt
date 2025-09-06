@@ -1,12 +1,11 @@
 package com.trading.matching.infrastructure.saga
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.node.ObjectNode
 import com.trading.common.domain.saga.SagaStatus
-import com.trading.common.dto.order.OrderDTO
-import com.trading.common.dto.order.OrderSide
-import com.trading.common.dto.order.OrderStatus
-import com.trading.common.dto.order.OrderType
 import com.trading.common.event.matching.TradeExecutedEvent
+import com.trading.common.event.order.OrderCancelledEvent
+import com.trading.common.event.order.OrderCreatedEvent
 import com.trading.common.event.saga.TradeFailedEvent
 import com.trading.common.event.saga.TradeRollbackEvent
 import com.trading.common.event.saga.SagaTimeoutEvent
@@ -37,73 +36,92 @@ class MatchingSagaService(
 ) {
     
     @KafkaListener(
-        topics = ["order-service.orders"],
+        topics = ["order.events"],
         groupId = "matching-saga-group"
     )
-    fun handleOrderCDCEvent(record: ConsumerRecord<String, String>) {
+    fun handleOrderEvent(record: ConsumerRecord<String, String>) {
         try {
-            val cdcEvent = parseCDCEvent(record.value())
-            when (cdcEvent.operation) {
-                "c" -> {
-                    if (cdcEvent.after?.status == OrderStatus.CREATED.name) {
-                        processTrade(cdcEvent.after)
-                    }
+            val eventPayload = record.value()
+            val jsonNode = objectMapper.readTree(eventPayload)
+            
+            val eventType = jsonNode.get("eventType")?.asText()
+            if (eventType == null) {
+                structuredLogger.warn("Unknown event format, no eventType found",
+                    mapOf(
+                        "offset" to record.offset().toString(),
+                        "partition" to record.partition().toString()
+                    )
+                )
+                return
+            }
+            
+            when (eventType) {
+                "OrderCreatedEvent" -> {
+                    val sagaId = jsonNode.get("sagaId").asText()
+                    val tradeId = jsonNode.get("tradeId")?.asText()
+                    
+                    val event = objectMapper.readValue(eventPayload, OrderCreatedEvent::class.java)
+                    processOrderCreatedEvent(event, sagaId, tradeId)
                 }
-                "u" -> {
-                    when (cdcEvent.after?.status) {
-                        OrderStatus.CANCELLED.name -> rollbackTrade(cdcEvent.after)
-                        OrderStatus.TIMEOUT.name -> rollbackTrade(cdcEvent.after)
-                    }
+                "OrderCancelledEvent" -> {
+                    val sagaId = jsonNode.get("sagaId").asText()
+                    val event = objectMapper.readValue(eventPayload, OrderCancelledEvent::class.java)
+                    processOrderCancelledEvent(event, sagaId)
+                }
+                else -> {
+                    structuredLogger.info("Ignoring event type: $eventType",
+                        mapOf(
+                            "eventType" to eventType,
+                            "offset" to record.offset().toString()
+                        )
+                    )
                 }
             }
         } catch (e: Exception) {
-            structuredLogger.error("Error processing CDC event",
+            structuredLogger.error("Error processing order event",
                 mapOf(
                     "error" to (e.message ?: "Unknown error"),
                     "offset" to record.offset().toString(),
-                    "partition" to record.partition().toString()
+                    "partition" to record.partition().toString(),
+                    "topic" to record.topic()
                 )
             )
         }
     }
     
-    private fun processTrade(orderData: CDCOrderData) {
+    private fun processOrderCreatedEvent(event: OrderCreatedEvent, sagaId: String, tradeId: String?) {
         val startTime = System.currentTimeMillis()
-        var sagaId = orderData.sagaId
-        if (sagaId == null) {
-            sagaId = uuidGenerator.generateEventId()
-        }
+
+        structuredLogger.info("Processing OrderCreatedEvent",
+            mapOf(
+                "eventId" to event.eventId,
+                "sagaId" to sagaId,
+                "orderId" to event.order.orderId,
+                "symbol" to event.order.symbol,
+                "traceId" to event.traceId
+            )
+        )
+        
         val sagaState = MatchingSagaState(
             sagaId = sagaId,
-            orderId = orderData.id,
-            tradeId = uuidGenerator.generateEventId(),
+            orderId = event.order.orderId,
+            tradeId = tradeId ?: uuidGenerator.generateEventId(),
             state = SagaStatus.IN_PROGRESS,
             timeoutAt = Instant.now().plusSeconds(matchingTimeoutSeconds),
-            metadata = objectMapper.writeValueAsString(orderData)
+            metadata = objectMapper.writeValueAsString(event)
         )
         val savedSaga = sagaRepository.save(sagaState)
 
         try {
-            val orderDto = OrderDTO(
-                orderId = orderData.id,
-                userId = orderData.userId,
-                symbol = orderData.symbol,
-                orderType = OrderType.valueOf(orderData.orderType),
-                side = OrderSide.valueOf(orderData.side),
-                quantity = orderData.quantity.toBigDecimal(),
-                price = orderData.price?.toBigDecimal(),
-                traceId = orderData.traceId ?: "",
-                createdAt = Instant.now(),
-                updatedAt = Instant.now()
-            )
+            val orderDto = event.order
             
-            val trades = matchingEngineManager.processOrderWithResult(orderDto, orderData.traceId ?: "")
+            val trades = matchingEngineManager.processOrderWithResult(orderDto, event.traceId)
             trades.forEach { trade ->
                 val tradeEvent = TradeExecutedEvent(
                     eventId = uuidGenerator.generateEventId(),
                     aggregateId = trade.tradeId,
                     occurredAt = Instant.now(),
-                    traceId = orderData.traceId ?: "",
+                    traceId = event.traceId,
                     tradeId = trade.tradeId,
                     symbol = trade.symbol,
                     buyOrderId = trade.buyOrderId,
@@ -115,7 +133,7 @@ class MatchingSagaService(
                     timestamp = trade.timestamp
                 )
                 
-                val eventNode = objectMapper.valueToTree<com.fasterxml.jackson.databind.node.ObjectNode>(tradeEvent)
+                val eventNode = objectMapper.valueToTree<ObjectNode>(tradeEvent)
                 eventNode.put("sagaId", savedSaga.sagaId)
                 eventNode.put("eventType", "TradeExecuted")
                 
@@ -129,21 +147,18 @@ class MatchingSagaService(
                     mapOf(
                         "sagaId" to savedSaga.sagaId,
                         "tradeId" to trade.tradeId,
-                        "orderId" to orderData.id,
+                        "orderId" to event.order.orderId,
                         "symbol" to trade.symbol,
                         "quantity" to trade.quantity.toString(),
                         "price" to trade.price.toString()
                     )
                 )
             }
-            savedSaga.markCompleted()
-            sagaRepository.save(savedSaga)
-            
             val duration = System.currentTimeMillis() - startTime
             structuredLogger.info("Matching completed successfully",
                 mapOf(
                     "sagaId" to savedSaga.sagaId,
-                    "orderId" to orderData.id,
+                    "orderId" to event.order.orderId,
                     "tradesCount" to trades.size.toString(),
                     "duration" to duration.toString()
                 )
@@ -155,74 +170,77 @@ class MatchingSagaService(
 
             val failedEvent = TradeFailedEvent(
                 eventId = uuidGenerator.generateEventId(),
-                aggregateId = orderData.id,
+                aggregateId = event.order.orderId,
                 occurredAt = Instant.now(),
-                traceId = orderData.traceId ?: "",
+                traceId = event.traceId,
                 sagaId = savedSaga.sagaId,
-                orderId = orderData.id,
-                symbol = orderData.symbol,
+                orderId = event.order.orderId,
+                symbol = event.order.symbol,
                 reason = e.message ?: "Unknown error",
                 shouldRetry = false
             )
             kafkaTemplate.send(
                 "trade.events",
-                orderData.symbol,
+                event.order.symbol,
                 objectMapper.writeValueAsString(failedEvent)
             )
             structuredLogger.error("Matching failed",
                 mapOf(
                     "sagaId" to savedSaga.sagaId,
-                    "orderId" to orderData.id,
+                    "orderId" to event.order.orderId,
                     "error" to (e.message ?: "Unknown error")
                 )
             )
         }
     }
     
-    private fun rollbackTrade(orderData: CDCOrderData) {
-        val saga = sagaRepository.findByOrderId(orderData.id)
-        if (saga == null) {
-            structuredLogger.warn("No saga found for order rollback",
-                mapOf("orderId" to orderData.id)
+    private fun processOrderCancelledEvent(event: OrderCancelledEvent, sagaId: String?) {
+        structuredLogger.info("Processing OrderCancelledEvent",
+            mapOf(
+                "eventId" to event.eventId,
+                "orderId" to event.orderId,
+                "reason" to event.reason
             )
-            return
-        }
-        if (saga.state == SagaStatus.COMPLETED) {
-            val metadata = objectMapper.readValue(saga.metadata ?: "{}", Map::class.java)
-            val tradeId = saga.tradeId
+        )
+        
+        val saga = sagaRepository.findByOrderId(event.orderId)
+        
+        if (saga.state == SagaStatus.IN_PROGRESS) {
             try {
+                val originalEvent = objectMapper.readValue(saga.metadata ?: "{}", OrderCreatedEvent::class.java)
+                
                 val rollbackEvent = TradeRollbackEvent(
                     eventId = uuidGenerator.generateEventId(),
-                    aggregateId = tradeId,
+                    aggregateId = saga.tradeId,
                     occurredAt = Instant.now(),
-                    traceId = orderData.traceId ?: "",
+                    traceId = event.traceId,
                     sagaId = saga.sagaId,
-                    tradeId = tradeId,
-                    orderId = orderData.id,
-                    buyOrderId = orderData.id,
+                    tradeId = saga.tradeId,
+                    orderId = event.orderId,
+                    buyOrderId = event.orderId,
                     sellOrderId = "",
-                    symbol = orderData.symbol,
-                    reason = "Order cancelled: ${orderData.cancellationReason}",
+                    symbol = originalEvent.order.symbol,
+                    reason = "Order cancelled: ${event.reason}",
                     rollbackType = TradeRollbackEvent.RollbackType.FULL
                 )
                 kafkaTemplate.send(
                     "trade.events",
-                    orderData.symbol,
+                    originalEvent.order.symbol,
                     objectMapper.writeValueAsString(rollbackEvent)
                 )
                 structuredLogger.info("Trade rollback event published",
                     mapOf(
                         "sagaId" to saga.sagaId,
-                        "tradeId" to tradeId,
-                        "orderId" to orderData.id,
-                        "reason" to orderData.cancellationReason
+                        "tradeId" to saga.tradeId,
+                        "orderId" to event.orderId,
+                        "reason" to event.reason
                     )
                 )
             } catch (e: Exception) {
                 structuredLogger.error("Failed to rollback trade",
                     mapOf(
                         "sagaId" to saga.sagaId,
-                        "orderId" to orderData.id,
+                        "orderId" to event.orderId,
                         "error" to (e.message ?: "Unknown error")
                     )
                 )
@@ -274,7 +292,7 @@ class MatchingSagaService(
             tradeId = saga.tradeId,
             failedAt = "Matching",
             timeoutDuration = matchingTimeoutSeconds,
-            metadata = mapOf("reason" to "Matching timeout after ${matchingTimeoutSeconds} seconds")
+            metadata = mapOf("reason" to "Matching timeout after $matchingTimeoutSeconds seconds")
         )
         
         kafkaTemplate.send(
@@ -283,35 +301,4 @@ class MatchingSagaService(
             objectMapper.writeValueAsString(timeoutEvent)
         )
     }
-    
-    private fun parseCDCEvent(json: String): CDCEvent {
-        val node = objectMapper.readTree(json)
-        return CDCEvent(
-            operation = node.get("op")?.asText() ?: "",
-            after = node.get("after")?.let { parseOrderData(it.toString()) }
-        )
-    }
-    
-    private fun parseOrderData(json: String): CDCOrderData {
-        return objectMapper.readValue(json, CDCOrderData::class.java)
-    }
-    
-    data class CDCEvent(
-        val operation: String,
-        val after: CDCOrderData?
-    )
-    
-    data class CDCOrderData(
-        val id: String,
-        val userId: String,
-        val symbol: String,
-        val orderType: String,
-        val side: String,
-        val quantity: String,
-        val price: String?,
-        val status: String,
-        val traceId: String?,
-        val sagaId: String?,
-        val cancellationReason: String = ""
-    )
 }

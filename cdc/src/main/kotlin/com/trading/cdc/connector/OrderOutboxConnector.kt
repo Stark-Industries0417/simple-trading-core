@@ -1,6 +1,7 @@
 package com.trading.cdc.connector
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.node.ObjectNode
 import com.trading.cdc.config.CdcProperties
 import com.trading.common.outbox.OutboxStatus
 import org.apache.kafka.clients.producer.KafkaProducer
@@ -45,10 +46,11 @@ class OrderOutboxConnector(
         try {
             val eventId = outboxRecord.getString("event_id")
             val aggregateId = outboxRecord.getString("aggregate_id")
-            val aggregateType = outboxRecord.getString("aggregate_type")
             val eventType = outboxRecord.getString("event_type")
             val payload = outboxRecord.getString("payload")
             val status = outboxRecord.getString("status")
+            val sagaId = outboxRecord.getString("saga_id")
+            val tradeId = try { outboxRecord.getString("trade_id") } catch (e: Exception) { null }
             
             if (status != OutboxStatus.PENDING.name) {
                 logger.debug("Skipping non-pending event: $eventId with status: $status")
@@ -57,12 +59,31 @@ class OrderOutboxConnector(
             
             val topic = determineTopicForEventType(eventType)
             
-            logger.info("Processing outbox event: eventId=$eventId, aggregateId=$aggregateId, eventType=$eventType, topic=$topic")
+            val symbol = try {
+                val payloadNode = objectMapper.readTree(payload)
+                payloadNode.path("order").path("symbol").asText()
+            } catch (e: Exception) {
+                logger.warn("Failed to extract symbol from payload, using aggregateId as key: ${e.message}")
+                aggregateId
+            }
             
-            val record = ProducerRecord<String, String>(
-                topic,
-                aggregateId,
+            logger.info("Processing outbox event: eventId=$eventId, aggregateId=$aggregateId, eventType=$eventType, topic=$topic, sagaId=$sagaId, symbol=$symbol")
+            
+            val enrichedPayload = try {
+                val payloadNode = objectMapper.readTree(payload) as ObjectNode
+                payloadNode.put("sagaId", sagaId)
+                tradeId?.let { payloadNode.put("tradeId", it) }
+                payloadNode.put("eventType", eventType) // Ensure eventType is present
+                objectMapper.writeValueAsString(payloadNode)
+            } catch (e: Exception) {
+                logger.warn("Failed to enrich payload, sending original: ${e.message}")
                 payload
+            }
+            
+            val record = ProducerRecord(
+                topic,
+                symbol,
+                enrichedPayload
             )
             
             kafkaProducer.send(record) { metadata, exception ->
