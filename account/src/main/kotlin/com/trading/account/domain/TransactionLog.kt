@@ -93,5 +93,6 @@ enum class TransactionType {
     BUY,
     SELL,
     DEPOSIT,
-    WITHDRAWAL
+    WITHDRAWAL,
+    ROLLBACK
 }

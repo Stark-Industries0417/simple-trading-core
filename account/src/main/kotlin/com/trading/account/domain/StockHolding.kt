@@ -110,6 +110,31 @@ class StockHolding private constructor(
         updatedAt = Instant.now()
     }
     
+    fun rollbackPurchase(rollbackQuantity: BigDecimal, purchasePrice: BigDecimal) {
+        require(rollbackQuantity > BigDecimal.ZERO) { "Rollback quantity must be positive" }
+        require(purchasePrice > BigDecimal.ZERO) { "Purchase price must be positive" }
+        require(quantity >= rollbackQuantity) { "Cannot rollback more shares than owned" }
+        
+        quantity = quantity - rollbackQuantity
+        availableQuantity = availableQuantity - rollbackQuantity
+        
+        if (quantity > BigDecimal.ZERO) {
+            val totalCost = averagePrice * (quantity + rollbackQuantity) - purchasePrice * rollbackQuantity
+            averagePrice = totalCost.divide(quantity, 4, RoundingMode.HALF_UP)
+        } else {
+            averagePrice = BigDecimal.ZERO
+        }
+        updatedAt = Instant.now()
+    }
+    
+    fun rollbackSale(rollbackQuantity: BigDecimal) {
+        require(rollbackQuantity > BigDecimal.ZERO) { "Rollback quantity must be positive" }
+        
+        quantity = quantity + rollbackQuantity
+        availableQuantity = availableQuantity + rollbackQuantity
+        updatedAt = Instant.now()
+    }
+    
     fun isConsistent(): Boolean {
         return availableQuantity <= quantity && 
                quantity >= BigDecimal.ZERO &&

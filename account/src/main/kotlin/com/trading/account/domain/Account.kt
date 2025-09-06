@@ -80,6 +80,24 @@ class Account private constructor(
         updatedAt = Instant.now()
     }
     
+    fun rollbackWithdrawal(amount: BigDecimal) {
+        require(amount > BigDecimal.ZERO) { "Rollback amount must be positive" }
+        
+        cashBalance = cashBalance + amount
+        availableCash = availableCash + amount
+        updatedAt = Instant.now()
+    }
+    
+    fun rollbackDeposit(amount: BigDecimal) {
+        require(amount > BigDecimal.ZERO) { "Rollback amount must be positive" }
+        require(cashBalance >= amount) { "Cannot rollback more than current balance" }
+        require(availableCash >= amount) { "Cannot rollback more than available cash" }
+        
+        cashBalance = cashBalance - amount
+        availableCash = availableCash - amount
+        updatedAt = Instant.now()
+    }
+    
     fun isConsistent(): Boolean {
         return availableCash <= cashBalance && 
                cashBalance >= BigDecimal.ZERO &&
