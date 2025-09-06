@@ -203,6 +203,61 @@ class MatchingEngineManager(
         return trades
     }
     
+    fun removeOrderFromBook(orderId: String, symbol: String, traceId: String = ""): Boolean {
+        val startTime = System.nanoTime()
+        val workerIndex = symbol.hashCode().absoluteValue % threadPoolSize
+        val worker = workers[workerIndex]
+        
+        logger.info(
+            "Cancelling order",
+            mapOf(
+                "orderId" to orderId,
+                "symbol" to symbol,
+                "workerId" to workerIndex,
+                "traceId" to traceId
+            )
+        )
+        
+        val cancelled = worker.cancelOrder(orderId, symbol, traceId)
+        
+        val latencyNanos = System.nanoTime() - startTime
+        if (latencyNanos > 10_000_000) {
+            logger.debug(
+                "Order cancellation latency",
+                mapOf(
+                    "orderId" to orderId,
+                    "symbol" to symbol,
+                    "latencyMs" to (latencyNanos / 1_000_000).toString(),
+                    "cancelled" to cancelled,
+                    "traceId" to traceId
+                )
+            )
+        }
+        
+        if (cancelled) {
+            logger.info(
+                "Order cancelled successfully",
+                mapOf(
+                    "orderId" to orderId,
+                    "symbol" to symbol,
+                    "traceId" to traceId
+                )
+            )
+        } else {
+            logger.warn(
+                "Order cancellation failed",
+                mapOf(
+                    "orderId" to orderId,
+                    "symbol" to symbol,
+                    "traceId" to traceId,
+                    "reason" to "Order not found or already executed"
+                )
+            )
+        }
+        
+        return cancelled
+    }
+    
     fun waitForAllCompletion(timeout: Long = 30, unit: TimeUnit = TimeUnit.SECONDS): Boolean {
         val deadline = System.currentTimeMillis() + unit.toMillis(timeout)
         
