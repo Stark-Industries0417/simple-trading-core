@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
 import com.trading.account.application.AccountService
 import com.trading.account.application.AccountUpdateResult
+import com.trading.account.application.RollbackResult
 import com.trading.account.domain.saga.AccountSagaRepository
 import com.trading.account.domain.saga.AccountSagaState
 import com.trading.common.domain.saga.SagaStatus
@@ -297,45 +298,92 @@ class AccountSagaService(
             val sellUserId = metadata["sellUserId"] as? String ?: ""
             val amount = BigDecimal(metadata["amount"] as? String ?: "0")
             val quantity = BigDecimal(metadata["quantity"] as? String ?: "0")
+            val price = BigDecimal(metadata["price"] as? String ?: "0")
             val symbol = metadata["symbol"] as? String ?: ""
 
-            val rollbackEvent = AccountRollbackEvent(
-                eventId = uuidGenerator.generateEventId(),
-                aggregateId = event.tradeId,
-                occurredAt = Instant.now(),
-                traceId = "",
-                sagaId = event.sagaId,
+            val rollbackResult = accountService.rollbackTradeExecution(
                 tradeId = event.tradeId,
-                orderId = event.orderId,
-                userId = buyUserId,
-                rollbackType = AccountRollbackEvent.RollbackType.REVERSE_TRADE,
-                amount = amount,
-                quantity = quantity,
+                buyUserId = buyUserId,
+                sellUserId = sellUserId,
                 symbol = symbol,
-                success = true,
-                reason = "Trade rollback completed"
+                quantity = quantity,
+                price = price,
+                traceId = event.traceId
             )
-            
+
+            val rollbackEvent = when (rollbackResult) {
+                is RollbackResult.Success -> {
+                    saga.markCompensated()
+                    sagaRepository.save(saga)
+
+                    structuredLogger.info("Account rollback completed successfully",
+                        mapOf(
+                            "sagaId" to event.sagaId,
+                            "tradeId" to event.tradeId,
+                            "buyUserId" to buyUserId,
+                            "sellUserId" to sellUserId,
+                            "buyerNewBalance" to rollbackResult.buyerNewBalance.toString(),
+                            "sellerNewBalance" to rollbackResult.sellerNewBalance.toString()
+                        )
+                    )
+
+                    AccountRollbackEvent(
+                        eventId = uuidGenerator.generateEventId(),
+                        aggregateId = event.tradeId,
+                        occurredAt = Instant.now(),
+                        traceId = event.traceId,
+                        sagaId = event.sagaId,
+                        tradeId = event.tradeId,
+                        orderId = event.orderId,
+                        userId = buyUserId,
+                        rollbackType = AccountRollbackEvent.RollbackType.REVERSE_TRADE,
+                        amount = amount,
+                        quantity = quantity,
+                        symbol = symbol,
+                        success = true,
+                        reason = "Trade rollback completed successfully"
+                    )
+                }
+
+                is RollbackResult.Failure -> {
+                    saga.markFailed("Rollback failed: ${rollbackResult.reason}")
+                    sagaRepository.save(saga)
+
+                    structuredLogger.error("Account rollback failed",
+                        mapOf(
+                            "sagaId" to event.sagaId,
+                            "tradeId" to event.tradeId,
+                            "reason" to rollbackResult.reason,
+                            "error" to (rollbackResult.exception.message ?: "Unknown error")
+                        ),
+                        exception = rollbackResult.exception
+                    )
+
+                    AccountRollbackEvent(
+                        eventId = uuidGenerator.generateEventId(),
+                        aggregateId = event.tradeId,
+                        occurredAt = Instant.now(),
+                        traceId = event.traceId,
+                        sagaId = event.sagaId,
+                        tradeId = event.tradeId,
+                        orderId = event.orderId,
+                        userId = buyUserId,
+                        rollbackType = AccountRollbackEvent.RollbackType.REVERSE_TRADE,
+                        amount = amount,
+                        quantity = quantity,
+                        symbol = symbol,
+                        success = false,
+                        reason = "Rollback failed: ${rollbackResult.reason}"
+                    )
+                }
+            }
+
             kafkaTemplate.send(
                 "account.events",
                 symbol,
                 objectMapper.writeValueAsString(rollbackEvent)
             )
-            
-            
-            saga.markCompensated()
-            sagaRepository.save(saga)
-            
-            structuredLogger.info("Account rollback completed",
-                mapOf(
-                    "sagaId" to event.sagaId,
-                    "tradeId" to event.tradeId,
-                    "buyUserId" to buyUserId,
-                    "sellUserId" to sellUserId,
-                    "amount" to amount.toString()
-                )
-            )
-            
+
         } catch (e: Exception) {
             structuredLogger.error("Failed to rollback account",
                 mapOf(
@@ -345,6 +393,9 @@ class AccountSagaService(
                 ),
                 exception = e
             )
+
+            saga.markFailed("Rollback exception: ${e.message}")
+            sagaRepository.save(saga)
         }
     }
     
