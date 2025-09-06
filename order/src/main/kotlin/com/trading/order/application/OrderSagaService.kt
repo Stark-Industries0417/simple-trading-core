@@ -9,14 +9,13 @@ import com.trading.common.event.order.OrderCancelledEvent
 import com.trading.common.event.saga.AccountUpdatedEvent
 import com.trading.common.event.saga.AccountUpdateFailedEvent
 import com.trading.common.event.saga.SagaTimeoutEvent
-import com.trading.common.exception.order.OrderPersistenceException
-import com.trading.common.exception.order.OrderProcessingException
 import com.trading.common.exception.order.OrderValidationException
 import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.UUIDv7Generator
 import com.trading.order.domain.Order
 import com.trading.order.domain.OrderRepository
 import com.trading.order.domain.OrderValidator
+import com.trading.order.domain.OrderCancellationValidator
 import com.trading.order.domain.toDTO
 import com.trading.order.infrastructure.outbox.OrderOutboxEvent
 import com.trading.order.infrastructure.outbox.OrderOutboxRepository
@@ -29,7 +28,6 @@ import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
-import java.util.*
 
 @Service
 @Transactional
@@ -41,9 +39,10 @@ class OrderSagaService(
     private val uuidGenerator: UUIDv7Generator,
     private val orderMetrics: OrderMetrics,
     private val orderValidator: OrderValidator,
+    private val orderCancellationValidator: OrderCancellationValidator,
+    private val orderServiceHelper: OrderServiceHelper,
     @Value("\${saga.timeouts.order:30}") private val orderTimeoutSeconds: Long = 30
 ) {
-    
     fun createOrderWithSaga(request: CreateOrderRequest, userId: String, traceId: String): OrderResponse {
         val startTime = System.currentTimeMillis()
 
@@ -109,47 +108,33 @@ class OrderSagaService(
             orderMetrics.incrementValidationFailures()
             throw ex.withServiceContext(userId, request.symbol)
         } catch (ex: DataIntegrityViolationException) {
-            handlePersistenceException(ex, order, userId, request.symbol, startTime)
+            orderServiceHelper.handlePersistenceException(ex, order, userId, request.symbol, startTime)
         } catch (ex: Exception) {
-            handleUnexpectedException(ex, order, userId, request.symbol, startTime, "order creation")
+            orderServiceHelper.handleUnexpectedException(ex, order, userId, request.symbol, startTime, "order creation")
         }
     }
 
-    fun cancelOrderWithSaga(orderId: String, userId: String, reason: String, traceId: String) {
-        val order = orderRepository.findById(orderId).orElseThrow {
-            OrderProcessingException("Order not found: $orderId")
-                .withContext("orderId", orderId)
-                .withContext("userId", userId)
-        }
-
-        if (order.userId != userId) {
-            throw OrderValidationException("Unauthorized to cancel this order")
-                .withServiceContext(userId, order.symbol)
-        }
-
-        if (order.status !in listOf(OrderStatus.CREATED, OrderStatus.PARTIALLY_FILLED)) {
-            throw OrderValidationException("Order cannot be cancelled in status: ${order.status}")
-                .withServiceContext(userId, order.symbol)
-        }
-
+    fun cancelOrderWithSaga(orderId: String, userId: String, reason: String, traceId: String): OrderResponse {
+        val order = orderCancellationValidator.validateAndRetrieveOrderForCancellation(orderId, userId)
+        
         order.cancel(reason)
-        orderRepository.save(order)
+        val savedOrder = orderRepository.save(order)
 
         val cancelEvent = OrderCancelledEvent(
             eventId = uuidGenerator.generateEventId(),
-            aggregateId = order.id,
+            aggregateId = savedOrder.id,
             occurredAt = Instant.now(),
             traceId = traceId,
-            orderId = order.id,
-            userId = order.userId,
+            orderId = savedOrder.id,
+            userId = savedOrder.userId,
             reason = reason
         )
 
         val compensationSagaId = uuidGenerator.generateEventId()
         publishEventToOutbox(
             event = cancelEvent,
-            orderId = order.id,
-            userId = order.userId,
+            orderId = savedOrder.id,
+            userId = savedOrder.userId,
             sagaId = compensationSagaId
         )
 
@@ -162,6 +147,8 @@ class OrderSagaService(
                 "traceId" to traceId
             )
         )
+        
+        return OrderResponse.from(savedOrder)
     }
     
     @KafkaListener(topics = ["account.events"], groupId = "order-saga-group")
@@ -314,95 +301,6 @@ class OrderSagaService(
             userId = order?.userId ?: "",
             sagaId = outboxEvent.sagaId ?: uuidGenerator.generateEventId()
         )
-    }
-
-    private fun handlePersistenceException(
-        ex: DataIntegrityViolationException,
-        order: Order?,
-        userId: String,
-        symbol: String,
-        startTime: Long
-    ): Nothing {
-        val duration = System.currentTimeMillis() - startTime
-        orderMetrics.incrementDatabaseErrors()
-
-        structuredLogger.error("Order persistence failed: constraint violation",
-            buildOrderContext(
-                order = order,
-                userId = userId,
-                symbol = symbol,
-                duration = duration,
-                additionalFields = mapOf(
-                    "error" to (ex.message ?: "Unknown error"),
-                    "constraintViolation" to true
-                )
-            )
-        )
-
-        val exception = OrderPersistenceException("Failed to save order: constraint violation", ex)
-            .withContext("userId", userId)
-            .withContext("symbol", symbol)
-        order?.id?.let { exception.withContext("orderId", it) }
-        throw exception
-    }
-
-    private fun handleUnexpectedException(
-        ex: Exception,
-        order: Order?,
-        userId: String,
-        symbol: String,
-        startTime: Long,
-        operation: String
-    ): Nothing {
-        val duration = System.currentTimeMillis() - startTime
-        orderMetrics.incrementUnexpectedErrors()
-
-        structuredLogger.error("Unexpected error during $operation",
-            buildOrderContext(
-                order = order,
-                userId = userId,
-                symbol = symbol,
-                duration = duration,
-                additionalFields = mapOf(
-                    "error" to (ex.message ?: "Unknown error"),
-                    "exceptionType" to ex.javaClass.simpleName
-                )
-            )
-        )
-
-        val exception = OrderProcessingException("$operation failed due to unexpected error", ex)
-            .withContext("userId", userId)
-            .withContext("symbol", symbol)
-        order?.id?.let { exception.withContext("orderId", it) }
-        throw exception
-    }
-
-    private fun buildOrderContext(
-        order: Order? = null,
-        orderId: String? = null,
-        userId: String? = null,
-        symbol: String? = null,
-        traceId: String? = null,
-        duration: Long? = null,
-        additionalFields: Map<String, Any> = emptyMap()
-    ): Map<String, Any> = buildMap {
-        order?.let {
-            put("orderId", it.id)
-            put("userId", it.userId)
-            put("symbol", it.symbol)
-            put("side", it.side.name)
-            put("orderType", it.orderType.name)
-            put("quantity", it.quantity.toString())
-            it.price?.let { price -> put("price", price.toString()) }
-            put("status", it.status.name)
-            put("version", it.version.toString())
-        }
-        orderId?.let { put("orderId", it) }
-        userId?.let { put("userId", it) }
-        symbol?.let { put("symbol", it) }
-        traceId?.let { put("traceId", it) }
-        duration?.let { put("duration", it.toString()) }
-        putAll(additionalFields)
     }
 
     private fun publishEventToOutbox(
