@@ -207,6 +207,32 @@ class MatchingSagaService(
             try {
                 val originalEvent = objectMapper.readValue(saga.metadata ?: "{}", OrderCreatedEvent::class.java)
                 
+                // Step 1: Cancel order in matching engine
+                val cancelSuccess = matchingEngineManager.removeOrderFromBook(
+                    orderId = event.orderId,
+                    symbol = originalEvent.order.symbol,
+                    traceId = event.traceId
+                )
+                
+                if (cancelSuccess) {
+                    structuredLogger.info("Order cancelled in matching engine",
+                        mapOf(
+                            "sagaId" to saga.sagaId,
+                            "orderId" to event.orderId,
+                            "symbol" to originalEvent.order.symbol
+                        )
+                    )
+                } else {
+                    structuredLogger.warn("Order cancellation in matching engine failed or order already executed",
+                        mapOf(
+                            "sagaId" to saga.sagaId,
+                            "orderId" to event.orderId,
+                            "symbol" to originalEvent.order.symbol
+                        )
+                    )
+                }
+                
+                // Step 2: Send rollback event for account compensation
                 val rollbackEvent = TradeRollbackEvent(
                     eventId = uuidGenerator.generateEventId(),
                     aggregateId = saga.tradeId,
@@ -231,11 +257,12 @@ class MatchingSagaService(
                         "sagaId" to saga.sagaId,
                         "tradeId" to saga.tradeId,
                         "orderId" to event.orderId,
-                        "reason" to event.reason
+                        "reason" to event.reason,
+                        "matchingCancelled" to cancelSuccess
                     )
                 )
             } catch (e: Exception) {
-                structuredLogger.error("Failed to rollback trade",
+                structuredLogger.error("Failed to process order cancellation",
                     mapOf(
                         "sagaId" to saga.sagaId,
                         "orderId" to event.orderId,
