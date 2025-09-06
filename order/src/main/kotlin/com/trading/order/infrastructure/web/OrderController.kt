@@ -2,7 +2,7 @@ package com.trading.order.infrastructure.web
 
 import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.TraceIdGenerator
-import com.trading.order.application.OrderService
+import com.trading.order.application.OrderSagaService
 import com.trading.order.infrastructure.web.dto.CreateOrderRequest
 import com.trading.order.infrastructure.web.dto.OrderResponse
 import jakarta.servlet.http.HttpServletRequest
@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.*
 @RequestMapping("/api/v1/orders")
 @CrossOrigin(origins = ["http://localhost:3000"])
 class OrderController(
-    private val orderService: OrderService,
+    private val orderSagaService: OrderSagaService,
     private val structuredLogger: StructuredLogger,
     private val traceIdGenerator: TraceIdGenerator
 ) {
@@ -52,7 +52,7 @@ class OrderController(
                 }
             )
             
-            val orderResponse = orderService.createOrder(request, userId, effectiveTraceId)
+            val orderResponse = orderSagaService.createOrderWithSaga(request, userId, effectiveTraceId)
             
             val duration = System.currentTimeMillis() - startTime
             structuredLogger.logPerformance(
@@ -88,14 +88,16 @@ class OrderController(
     fun cancelOrder(
         @PathVariable orderId: String,
         @RequestHeader("X-User-Id") userId: String,
+        @RequestHeader(value = "X-Trace-Id", required = false) traceId: String?,
         @RequestBody(required = false) cancelRequest: CancelOrderRequest?,
         httpRequest: HttpServletRequest
     ): ResponseEntity<OrderResponse> {
-        
         require(userId.isNotBlank()) { "User ID cannot be blank" }
         require(orderId.isNotBlank()) { "Order ID cannot be blank" }
         
+        val effectiveTraceId = traceId ?: traceIdGenerator.generate()
         val reason = cancelRequest?.reason ?: "User cancelled"
+        val startTime = System.currentTimeMillis()
         
         structuredLogger.logUserAction(
             userId = userId,
@@ -104,23 +106,24 @@ class OrderController(
             details = mapOf(
                 "orderId" to orderId,
                 "reason" to reason,
+                "traceId" to effectiveTraceId,
                 "userAgent" to (httpRequest.getHeader("User-Agent") ?: "Unknown")
             )
         )
         
-        val cancelledOrder = orderService.cancelOrder(orderId, userId, reason)
-        
+        val cancelledOrder = orderSagaService.cancelOrderWithSaga(orderId, userId, reason, effectiveTraceId)
+        val duration = System.currentTimeMillis() - startTime
         structuredLogger.logPerformance(
-            operation = "CANCEL_ORDER",
-            durationMs = 0,
+            operation = "CANCEL_ORDER_WITH_SAGA",
+            durationMs = duration,
             success = true,
             details = mapOf(
                 "orderId" to orderId,
                 "userId" to userId,
-                "previousStatus" to "PENDING_OR_PARTIAL"
+                "reason" to reason,
+                "traceId" to effectiveTraceId
             )
         )
-        
         return ResponseEntity.ok(cancelledOrder)
     }
     
