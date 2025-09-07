@@ -7,9 +7,11 @@ import com.trading.common.event.saga.SagaTimeoutEvent
 import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.UUIDv7Generator
 import com.trading.order.domain.OrderRepository
-import com.trading.order.infrastructure.outbox.OrderOutboxEvent
 import com.trading.order.infrastructure.outbox.OrderOutboxRepository
 import com.trading.common.outbox.OutboxStatus
+import com.trading.common.domain.saga.SagaStatus
+import com.trading.order.domain.saga.OrderSagaRepository
+import com.trading.order.domain.saga.OrderSagaState
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.kafka.annotation.KafkaListener
@@ -23,6 +25,7 @@ import java.time.Instant
 class SagaEventListener(
     private val orderRepository: OrderRepository,
     private val outboxRepository: OrderOutboxRepository,
+    private val sagaRepository: OrderSagaRepository,
     private val objectMapper: ObjectMapper,
     private val structuredLogger: StructuredLogger,
     private val uuidGenerator: UUIDv7Generator,
@@ -70,6 +73,11 @@ class SagaEventListener(
         order.filledAt = Instant.now()
         orderRepository.save(order)
 
+        sagaRepository.findBySagaId(event.sagaId)?.let { sagaState ->
+            sagaState.markCompleted()
+            sagaRepository.save(sagaState)
+        }
+
         outboxRepository.findBySagaId(event.sagaId)?.let { outboxEvent ->
             outboxRepository.updateStatus(
                 eventId = outboxEvent.eventId,
@@ -100,6 +108,11 @@ class SagaEventListener(
         order.cancel(event.reason)
         orderRepository.save(order)
 
+        sagaRepository.findBySagaId(event.sagaId)?.let { sagaState ->
+            sagaState.markFailed(event.reason)
+            sagaRepository.save(sagaState)
+        }
+
         outboxRepository.findBySagaId(event.sagaId)?.let { outboxEvent ->
             outboxRepository.updateStatus(
                 eventId = outboxEvent.eventId,
@@ -120,17 +133,19 @@ class SagaEventListener(
     
     @Scheduled(fixedDelay = 5000)
     fun checkTimeouts() {
-        val timeoutTime = Instant.now().minusSeconds(orderTimeoutSeconds)
-        val timedOutSagas = outboxRepository.findTimedOutSagas(timeoutTime)
+        val timedOutSagas = sagaRepository.findTimedOutSagas(
+            states = listOf(SagaStatus.STARTED, SagaStatus.IN_PROGRESS),
+            now = Instant.now()
+        )
         
-        timedOutSagas.forEach { outboxEvent ->
+        timedOutSagas.forEach { saga ->
             try {
-                handleTimeout(outboxEvent)
+                handleSagaTimeout(saga)
             } catch (e: Exception) {
                 structuredLogger.error("Error handling saga timeout",
                     mapOf(
-                        "sagaId" to (outboxEvent.sagaId ?: ""),
-                        "orderId" to outboxEvent.orderId,
+                        "sagaId" to saga.sagaId,
+                        "orderId" to saga.orderId,
                         "error" to (e.message ?: "Unknown error")
                     )
                 )
@@ -138,37 +153,44 @@ class SagaEventListener(
         }
     }
     
-    private fun handleTimeout(outboxEvent: OrderOutboxEvent) {
+    private fun handleSagaTimeout(saga: OrderSagaState) {
         structuredLogger.warn("Order saga timeout detected",
             mapOf(
-                "sagaId" to (outboxEvent.sagaId ?: ""),
-                "orderId" to outboxEvent.orderId,
-                "status" to outboxEvent.status.name
+                "sagaId" to saga.sagaId,
+                "orderId" to saga.orderId,
+                "userId" to saga.userId,
+                "state" to saga.state.name,
+                "startedAt" to saga.startedAt.toString(),
+                "timeoutAt" to saga.timeoutAt.toString()
             )
         )
         
-        val order = orderRepository.findById(outboxEvent.orderId).orElse(null)
+        saga.markTimeout()
+        sagaRepository.save(saga)
+        
+        val order = orderRepository.findById(saga.orderId).orElse(null)
         if (order != null && order.status == OrderStatus.CREATED) {
-            
             order.status = OrderStatus.TIMEOUT
             order.cancellationReason = "Saga timeout after $orderTimeoutSeconds seconds"
             orderRepository.save(order)
         }
         
-        outboxRepository.updateStatus(
-            eventId = outboxEvent.eventId,
-            status = OutboxStatus.FAILED,
-            processedAt = Instant.now()
-        )
+        outboxRepository.findBySagaId(saga.sagaId)?.let { outboxEvent ->
+            outboxRepository.updateStatus(
+                eventId = outboxEvent.eventId,
+                status = OutboxStatus.FAILED,
+                processedAt = Instant.now()
+            )
+        }
         
         val timeoutEvent = SagaTimeoutEvent(
             eventId = uuidGenerator.generateEventId(),
-            aggregateId = outboxEvent.orderId,
+            aggregateId = saga.orderId,
             occurredAt = Instant.now(),
             traceId = order?.traceId ?: "",
-            sagaId = outboxEvent.sagaId ?: uuidGenerator.generateEventId(),
-            orderId = outboxEvent.orderId,
-            tradeId = outboxEvent.tradeId,
+            sagaId = saga.sagaId,
+            orderId = saga.orderId,
+            tradeId = saga.tradeId,
             failedAt = "Order",
             timeoutDuration = orderTimeoutSeconds,
             metadata = mapOf("reason" to "Order processing timeout")
@@ -176,9 +198,10 @@ class SagaEventListener(
         
         orderSagaService.publishEventToOutbox(
             event = timeoutEvent,
-            orderId = outboxEvent.orderId,
-            userId = order?.userId ?: "",
-            sagaId = outboxEvent.sagaId ?: uuidGenerator.generateEventId()
+            orderId = saga.orderId,
+            userId = saga.userId,
+            sagaId = saga.sagaId,
+            tradeId = saga.tradeId
         )
     }
 }

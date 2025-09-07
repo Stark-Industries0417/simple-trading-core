@@ -1,7 +1,6 @@
 package com.trading.order.application
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.trading.common.dto.order.OrderStatus
 import com.trading.common.event.base.DomainEvent
 import com.trading.common.event.order.OrderCreatedEvent
 import com.trading.common.event.order.OrderCancelledEvent
@@ -18,6 +17,9 @@ import com.trading.order.infrastructure.outbox.OrderOutboxEvent
 import com.trading.order.infrastructure.outbox.OrderOutboxRepository
 import com.trading.order.infrastructure.web.dto.CreateOrderRequest
 import com.trading.order.infrastructure.web.dto.OrderResponse
+import com.trading.order.domain.saga.OrderSagaRepository
+import com.trading.order.domain.saga.OrderSagaState
+import com.trading.common.domain.saga.SagaStatus
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -28,6 +30,7 @@ import java.time.Instant
 class OrderSagaService(
     private val orderRepository: OrderRepository,
     private val outboxRepository: OrderOutboxRepository,
+    private val sagaRepository: OrderSagaRepository,
     private val objectMapper: ObjectMapper,
     private val structuredLogger: StructuredLogger,
     private val uuidGenerator: UUIDv7Generator,
@@ -61,13 +64,23 @@ class OrderSagaService(
                 traceId = traceId,
                 uuidGenerator = uuidGenerator
             )
-            order.status = OrderStatus.CREATED
-
             orderValidator.validateOrThrow(order)
             val savedOrder = orderRepository.save(order)
 
             val sagaId = uuidGenerator.generateEventId()
             val tradeId = uuidGenerator.generateEventId()
+
+            val sagaState = OrderSagaState(
+                sagaId = sagaId,
+                tradeId = tradeId,
+                orderId = savedOrder.id,
+                userId = userId,
+                symbol = savedOrder.symbol,
+                orderType = savedOrder.orderType.name,
+                state = SagaStatus.STARTED,
+                timeoutAt = Instant.now().plusSeconds(30)
+            )
+            sagaRepository.save(sagaState)
 
             val event = OrderCreatedEvent(
                 eventId = uuidGenerator.generateEventId(),
@@ -198,7 +211,7 @@ class OrderSagaService(
             )
             else -> Triple(
                 uuidGenerator.generateEventId(),
-                "", // fallback
+                "",
                 null
             )
         }
