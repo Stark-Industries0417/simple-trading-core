@@ -9,7 +9,6 @@ import com.trading.common.dto.order.OrderSide
 import com.trading.common.event.matching.TradeExecutedEvent
 import com.trading.common.event.order.OrderCancelledEvent
 import com.trading.common.event.order.OrderCreatedEvent
-import com.trading.common.event.outbox.OutboxEventMessage
 import com.trading.common.logging.StructuredLogger
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -39,7 +38,7 @@ class AccountConsumer(
     }
     
     @KafkaListener(
-        topics = ["#{kafkaProperties.topics.orderEvents}"],
+        topics = ["#{kafkaProperties.topics.orderEvents}", "#{kafkaProperties.topics.tradeEvents}"],
         groupId = "#{kafkaProperties.consumer.groupId}",
         containerFactory = "kafkaListenerContainerFactory"
     )
@@ -54,13 +53,22 @@ class AccountConsumer(
         val startTime = System.currentTimeMillis()
         
         try {
-            // OutboxEventMessage로 먼저 파싱
-            val outboxMessage = objectMapper.readValue(message, OutboxEventMessage::class.java)
+            val jsonNode = objectMapper.readTree(message)
+            
+            if (!jsonNode.has("eventType")) {
+                logger.warn(
+                    "Message missing eventType field - offset: {}, partition: {}",
+                    offset, partition
+                )
+                acknowledgment.acknowledge()
+                return
+            }
+            
+            val eventType = jsonNode.get("eventType").asText()
             
             structuredLogger.info("Processing event from Kafka",
                 mapOf(
-                    "eventType" to outboxMessage.eventType,
-                    "aggregateId" to outboxMessage.aggregateId,
+                    "eventType" to eventType,
                     "symbol" to (key ?: "N/A"),
                     "topic" to topic,
                     "partition" to partition.toString(),
@@ -68,24 +76,29 @@ class AccountConsumer(
                 )
             )
             
-            // 이벤트 타입에 따른 분기 처리
-            when (outboxMessage.eventType) {
-                "OrderCreated" -> handleOrderCreated(outboxMessage, startTime)
-                "TradeExecuted" -> handleTradeExecuted(outboxMessage, startTime)
-                "OrderCancelled" -> handleOrderCancelled(outboxMessage, startTime)
+            when (eventType) {
+                "OrderCreatedEvent" -> {
+                    val orderEvent = objectMapper.treeToValue(jsonNode, OrderCreatedEvent::class.java)
+                    handleOrderCreated(orderEvent, startTime)
+                }
+                "TradeExecutedEvent" -> {
+                    val tradeEvent = objectMapper.treeToValue(jsonNode, TradeExecutedEvent::class.java)
+                    handleTradeExecuted(tradeEvent, startTime)
+                }
+                "OrderCancelledEvent" -> {
+                    val cancelEvent = objectMapper.treeToValue(jsonNode, OrderCancelledEvent::class.java)
+                    handleOrderCancelled(cancelEvent, startTime)
+                }
                 else -> {
                     logger.warn(
                         "Unknown event type: {} - offset: {}, partition: {}",
-                        outboxMessage.eventType, offset, partition
+                        eventType, offset, partition
                     )
                 }
             }
-            
-            // 모든 처리가 성공하면 acknowledge
             acknowledgment.acknowledge()
             
         } catch (e: RetryableException) {
-            // 재시도 가능한 예외는 다시 던져서 재처리
             logger.warn(
                 "Retryable error processing event - offset: {}, partition: {}: {}",
                 offset, partition, e.message
@@ -97,19 +110,14 @@ class AccountConsumer(
                 "Error processing event - topic: {}, partition: {}, offset: {}",
                 topic, partition, offset, e
             )
-            // 복구 불가능한 에러는 acknowledge하여 진행
             acknowledgment.acknowledge()
         }
     }
     
     private fun handleOrderCreated(
-        outboxMessage: OutboxEventMessage,
+        orderEvent: OrderCreatedEvent,
         startTime: Long
     ) {
-        val orderEvent = objectMapper.readValue(
-            outboxMessage.payload,
-            OrderCreatedEvent::class.java
-        )
         val order = orderEvent.order
         
         structuredLogger.info("Processing order created event",
@@ -216,13 +224,9 @@ class AccountConsumer(
     }
     
     private fun handleTradeExecuted(
-        outboxMessage: OutboxEventMessage,
+        tradeEvent: TradeExecutedEvent,
         startTime: Long
     ) {
-        val tradeEvent = objectMapper.readValue(
-            outboxMessage.payload,
-            TradeExecutedEvent::class.java
-        )
         
         structuredLogger.info("Processing trade executed event",
             mapOf(
@@ -236,7 +240,6 @@ class AccountConsumer(
             )
         )
         
-        // 체결 처리 (예약된 결제 확정)
         val result = accountService.processTradeExecution(tradeEvent)
         
         when (result) {
@@ -273,13 +276,9 @@ class AccountConsumer(
     }
     
     private fun handleOrderCancelled(
-        outboxMessage: OutboxEventMessage,
+        cancelEvent: OrderCancelledEvent,
         startTime: Long
     ) {
-        val cancelEvent = objectMapper.readValue(
-            outboxMessage.payload,
-            OrderCancelledEvent::class.java
-        )
         
         structuredLogger.info("Processing order cancelled event",
             mapOf(
@@ -290,7 +289,6 @@ class AccountConsumer(
             )
         )
         
-        // 예약 해제
         val releaseSuccess = accountService.releaseReservation(
             userId = cancelEvent.userId,
             orderId = cancelEvent.orderId,

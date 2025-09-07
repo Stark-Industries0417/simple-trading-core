@@ -34,6 +34,7 @@ kafka:
   
   topics:
     order-events: order.events
+    trade-events: trade.events
 
 server:
   port: 8083

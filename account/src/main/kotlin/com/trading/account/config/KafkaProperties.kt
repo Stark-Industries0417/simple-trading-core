@@ -24,4 +24,5 @@ data class ConsumerProperties(
 
 data class TopicProperties(
     var orderEvents: String = "order.events",
+    var tradeEvents: String = "trade.events"
 )
