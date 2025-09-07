@@ -1,7 +1,7 @@
 package com.trading.cdc
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.trading.cdc.connector.OrderOutboxConnector
+import com.trading.cdc.connector.OrderSagaConnector
 import com.trading.cdc.health.CdcHealthIndicator
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
@@ -50,29 +50,35 @@ class CdcIntegrationTest {
     private lateinit var objectMapper: ObjectMapper
     
     @MockBean
-    private lateinit var orderOutboxConnector: OrderOutboxConnector
+    private lateinit var orderSagaConnector: OrderSagaConnector
     
     @BeforeEach
     fun setup() {
         mysqlContainer.createConnection("").use { connection ->
             connection.createStatement().use { statement ->
                 statement.execute("""
-                    CREATE TABLE IF NOT EXISTS order_outbox_events (
-                        event_id       VARCHAR(50) PRIMARY KEY,
-                        aggregate_id   VARCHAR(50)  NOT NULL,
-                        aggregate_type VARCHAR(50)  NOT NULL,
-                        event_type     VARCHAR(50)  NOT NULL,
-                        payload        JSON         NOT NULL,
-                        status         VARCHAR(20)  NOT NULL DEFAULT 'PENDING',
-                        created_at     TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-                        processed_at   TIMESTAMP(6) NULL,
-                        version        BIGINT       NOT NULL DEFAULT 0,
-                        order_id       VARCHAR(50)  NOT NULL,
-                        user_id        VARCHAR(50)  NOT NULL,
+                    CREATE TABLE IF NOT EXISTS order_saga_states (
+                        saga_id         VARCHAR(255) PRIMARY KEY,
+                        trade_id        VARCHAR(255) NOT NULL,
+                        order_id        VARCHAR(255) NOT NULL,
+                        user_id         VARCHAR(255) NOT NULL,
+                        symbol          VARCHAR(50) NOT NULL,
+                        order_type      VARCHAR(50) NOT NULL,
+                        state           VARCHAR(50) NOT NULL,
+                        event_type      VARCHAR(100) NOT NULL DEFAULT 'OrderCreatedEvent',
+                        event_payload   JSON NOT NULL DEFAULT '{}',
+                        topic           VARCHAR(100) NOT NULL DEFAULT 'order.events',
+                        started_at      TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                        completed_at    TIMESTAMP(6),
+                        timeout_at      TIMESTAMP(6) NOT NULL,
+                        last_modified_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                        metadata        TEXT,
+                        version         BIGINT DEFAULT 0,
                         
-                        INDEX idx_outbox_status (status),
-                        INDEX idx_outbox_created (created_at),
-                        INDEX idx_outbox_aggregate (aggregate_id)
+                        INDEX idx_saga_order (order_id),
+                        INDEX idx_saga_user (user_id),
+                        INDEX idx_saga_state (state),
+                        INDEX idx_saga_last_modified (last_modified_at)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """.trimIndent())
             }
@@ -80,20 +86,22 @@ class CdcIntegrationTest {
     }
     
     @Test
-    fun `Outbox 테이블에서 OrderCreated 이벤트를 처리한다`() {
-        val eventId = "test-event-001"
+    fun `Saga 상태 테이블에서 OrderCreated 이벤트를 처리한다`() {
+        val sagaId = "test-saga-001"
+        val tradeId = "test-trade-001"
         val orderId = "order-001"
         val userId = "user-001"
         mysqlContainer.createConnection("").use { connection ->
             connection.createStatement().use { statement ->
                 statement.execute("""
-                    INSERT INTO order_outbox_events (
-                        event_id, aggregate_id, aggregate_type, event_type, 
-                        payload, order_id, user_id
+                    INSERT INTO order_saga_states (
+                        saga_id, trade_id, order_id, user_id, symbol, order_type,
+                        state, event_type, event_payload, timeout_at
                     ) VALUES (
-                        '$eventId', '$orderId', 'Order', 'OrderCreated',
+                        '$sagaId', '$tradeId', '$orderId', '$userId', 'AAPL', 'MARKET',
+                        'STARTED', 'OrderCreatedEvent',
                         '{"orderId":"$orderId","userId":"$userId","symbol":"AAPL"}',
-                        '$orderId', '$userId'
+                        TIMESTAMPADD(SECOND, 30, CURRENT_TIMESTAMP)
                     )
                 """.trimIndent())
             }
@@ -126,20 +134,22 @@ class CdcIntegrationTest {
     }
     
     @Test
-    fun `Outbox 테이블에서 OrderCancelled 이벤트를 처리한다`() {
-        val eventId = "test-event-002"
+    fun `Saga 상태 테이블에서 OrderCancelled 이벤트를 처리한다`() {
+        val sagaId = "test-saga-002"
+        val tradeId = "test-trade-002"
         val orderId = "order-002"
         val userId = "user-001"
         mysqlContainer.createConnection("").use { connection ->
             connection.createStatement().use { statement ->
                 statement.execute("""
-                    INSERT INTO order_outbox_events (
-                        event_id, aggregate_id, aggregate_type, event_type, 
-                        payload, order_id, user_id
+                    INSERT INTO order_saga_states (
+                        saga_id, trade_id, order_id, user_id, symbol, order_type,
+                        state, event_type, event_payload, timeout_at
                     ) VALUES (
-                        '$eventId', '$orderId', 'Order', 'OrderCancelled',
+                        '$sagaId', '$tradeId', '$orderId', '$userId', 'AAPL', 'MARKET',
+                        'COMPENSATING', 'OrderCancelledEvent',
                         '{"orderId":"$orderId","userId":"$userId","reason":"User requested"}',
-                        '$orderId', '$userId'
+                        TIMESTAMPADD(SECOND, 30, CURRENT_TIMESTAMP)
                     )
                 """.trimIndent())
             }
