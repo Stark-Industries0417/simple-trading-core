@@ -96,3 +96,6 @@ junit/
 
 .claude
 claude.md
+MODULE*.md
+PROJECT_OVERVIEW.md
+IMPLEMENTATION_STATUS.md
