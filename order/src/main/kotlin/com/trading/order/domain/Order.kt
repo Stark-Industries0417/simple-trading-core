@@ -46,7 +46,7 @@ class Order private constructor(
     
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    var status: OrderStatus = OrderStatus.PENDING,
+    var status: OrderStatus = OrderStatus.CREATED,
     
     @Column(nullable = false)
     val createdAt: Instant = Instant.now(),
