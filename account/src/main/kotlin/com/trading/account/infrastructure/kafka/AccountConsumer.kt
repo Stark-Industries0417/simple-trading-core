@@ -38,8 +38,8 @@ class AccountConsumer(
     }
     
     @KafkaListener(
-        topics = ["#{kafkaProperties.topics.orderEvents}", "#{kafkaProperties.topics.tradeEvents}"],
-        groupId = "#{kafkaProperties.consumer.groupId}",
+        topics = ["#{@kafkaProperties.topics.orderEvents}", "#{@kafkaProperties.topics.tradeEvents}"],
+        groupId = "#{@kafkaProperties.consumer.groupId}",
         containerFactory = "kafkaListenerContainerFactory"
     )
     fun handleEvent(

@@ -10,6 +10,7 @@ import com.trading.common.event.saga.TradeFailedEvent
 import com.trading.common.event.saga.TradeRollbackEvent
 import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.UUIDv7Generator
+import com.trading.matching.config.KafkaProperties
 import com.trading.matching.domain.saga.MatchingSagaRepository
 import com.trading.matching.domain.saga.MatchingSagaState
 import com.trading.matching.infrastructure.engine.MatchingEngineManager
@@ -30,12 +31,13 @@ class MatchingSagaService(
     private val objectMapper: ObjectMapper,
     private val structuredLogger: StructuredLogger,
     private val uuidGenerator: UUIDv7Generator,
+    private val kafkaProperties: KafkaProperties,
     @Value("\${saga.timeouts.matching:10}") private val matchingTimeoutSeconds: Long = 10
 ) {
     
     @KafkaListener(
-        topics = ["order.events"],
-        groupId = "matching-saga-group"
+        topics = ["#{@kafkaProperties.topics.orderEvents}"],
+        groupId = "#{@kafkaProperties.consumer.groupId}"
     )
     fun handleOrderEvent(record: ConsumerRecord<String, String>) {
         try {
@@ -136,7 +138,7 @@ class MatchingSagaService(
                 eventNode.put("eventType", "TradeExecuted")
                 
                 kafkaTemplate.send(
-                    "trade.events",
+                    kafkaProperties.topics.tradeEvents,
                     trade.symbol,
                     objectMapper.writeValueAsString(eventNode)
                 )
@@ -178,7 +180,7 @@ class MatchingSagaService(
                 shouldRetry = false
             )
             kafkaTemplate.send(
-                "trade.events",
+                kafkaProperties.topics.tradeEvents,
                 event.order.symbol,
                 objectMapper.writeValueAsString(failedEvent)
             )
@@ -192,7 +194,7 @@ class MatchingSagaService(
         }
     }
     
-    private fun processOrderCancelledEvent(event: OrderCancelledEvent, sagaId: String?) {
+    private fun processOrderCancelledEvent(event: OrderCancelledEvent, @Suppress("UNUSED_PARAMETER") sagaId: String?) {
         structuredLogger.info("Processing OrderCancelledEvent",
             mapOf(
                 "eventId" to event.eventId,
@@ -207,7 +209,6 @@ class MatchingSagaService(
             try {
                 val originalEvent = objectMapper.readValue(saga.metadata ?: "{}", OrderCreatedEvent::class.java)
                 
-                // Step 1: Cancel order in matching engine
                 val cancelSuccess = matchingEngineManager.removeOrderFromBook(
                     orderId = event.orderId,
                     symbol = originalEvent.order.symbol,
@@ -232,7 +233,6 @@ class MatchingSagaService(
                     )
                 }
                 
-                // Step 2: Send rollback event for account compensation
                 val rollbackEvent = TradeRollbackEvent(
                     eventId = uuidGenerator.generateEventId(),
                     aggregateId = saga.tradeId,
@@ -248,7 +248,7 @@ class MatchingSagaService(
                     rollbackType = TradeRollbackEvent.RollbackType.FULL
                 )
                 kafkaTemplate.send(
-                    "trade.events",
+                    kafkaProperties.topics.tradeEvents,
                     originalEvent.order.symbol,
                     objectMapper.writeValueAsString(rollbackEvent)
                 )
