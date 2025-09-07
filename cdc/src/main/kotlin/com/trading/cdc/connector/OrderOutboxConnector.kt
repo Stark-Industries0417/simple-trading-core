@@ -9,12 +9,10 @@ import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.connect.data.Struct
 import org.slf4j.LoggerFactory
-import org.springframework.stereotype.Component
 import java.util.*
 import jakarta.annotation.PostConstruct
 import jakarta.annotation.PreDestroy
 
-@Component
 class OrderOutboxConnector(
     private val cdcProperties: CdcProperties,
     private val objectMapper: ObjectMapper,

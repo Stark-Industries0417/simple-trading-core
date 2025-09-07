@@ -1,9 +1,10 @@
 package com.trading.cdc.config
 
-import com.trading.cdc.connector.OrderOutboxConnector
+import com.trading.cdc.connector.OrderSagaConnector
 import io.debezium.config.Configuration
 import io.debezium.embedded.Connect
 import io.debezium.engine.DebeziumEngine
+import io.debezium.engine.DebeziumEngine.RecordCommitter
 import io.debezium.engine.RecordChangeEvent
 import io.debezium.engine.format.ChangeEventFormat
 import org.apache.kafka.connect.data.Struct
@@ -16,14 +17,14 @@ import java.util.*
 @Component
 class DebeziumConfig(
     private val cdcProperties: CdcProperties,
-    private val orderOutboxConnector: OrderOutboxConnector
+    private val orderSagaConnector: OrderSagaConnector
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
     @Bean
     fun debeziumConfiguration(): Configuration {
         val props = Properties().apply {
-            put("name", "order-outbox-connector")
+            put("name", "order-saga-connector")
             put("connector.class", "io.debezium.connector.mysql.MySqlConnector")
             put("offset.storage", "org.apache.kafka.connect.storage.FileOffsetBackingStore")
             put("offset.storage.file.filename", cdcProperties.debezium.offsetStorageFileName)
@@ -37,16 +38,20 @@ class DebeziumConfig(
             put("database.server.id", cdcProperties.debezium.serverId)
             put("database.server.name", cdcProperties.debezium.serverName)
             
-            put("table.include.list", "${cdcProperties.database.name}.order_outbox_events")
+            put("table.include.list", "${cdcProperties.database.name}.order_saga_states")
             
             put("column.include.list", 
-                "${cdcProperties.database.name}.order_outbox_events.event_id," +
-                "${cdcProperties.database.name}.order_outbox_events.aggregate_id," +
-                "${cdcProperties.database.name}.order_outbox_events.aggregate_type," +
-                "${cdcProperties.database.name}.order_outbox_events.event_type," +
-                "${cdcProperties.database.name}.order_outbox_events.payload," +
-                "${cdcProperties.database.name}.order_outbox_events.status," +
-                "${cdcProperties.database.name}.order_outbox_events.created_at"
+                "${cdcProperties.database.name}.order_saga_states.saga_id," +
+                "${cdcProperties.database.name}.order_saga_states.trade_id," +
+                "${cdcProperties.database.name}.order_saga_states.order_id," +
+                "${cdcProperties.database.name}.order_saga_states.user_id," +
+                "${cdcProperties.database.name}.order_saga_states.symbol," +
+                "${cdcProperties.database.name}.order_saga_states.order_type," +
+                "${cdcProperties.database.name}.order_saga_states.state," +
+                "${cdcProperties.database.name}.order_saga_states.event_type," +
+                "${cdcProperties.database.name}.order_saga_states.event_payload," +
+                "${cdcProperties.database.name}.order_saga_states.topic," +
+                "${cdcProperties.database.name}.order_saga_states.last_modified_at"
             )
             
             put("database.history", "io.debezium.relational.history.FileDatabaseHistory")
@@ -56,14 +61,10 @@ class DebeziumConfig(
             put("poll.interval.ms", cdcProperties.debezium.pollIntervalMs.toString())
             put("max.batch.size", cdcProperties.debezium.maxBatchSize.toString())
             
-            put("transforms", "outbox")
-            put("transforms.outbox.type", "io.debezium.transforms.outbox.EventRouter")
-            put("transforms.outbox.table.field.event.id", "event_id")
-            put("transforms.outbox.table.field.event.key", "aggregate_id")
-            put("transforms.outbox.table.field.event.type", "event_type")
-            put("transforms.outbox.table.field.event.payload", "payload")
-            put("transforms.outbox.route.by.field", "event_type")
-            put("transforms.outbox.route.topic.replacement", "${cdcProperties.kafka.orderEventsTopic}.\${routedByValue}")
+            put("transforms", "route")
+            put("transforms.route.type", "org.apache.kafka.connect.transforms.RegexRouter")
+            put("transforms.route.regex", "(.*)")
+            put("transforms.route.replacement", cdcProperties.kafka.orderEventsTopic)
             
             put("include.schema.changes", "false")
             put("tombstones.on.delete", "false")
@@ -74,12 +75,12 @@ class DebeziumConfig(
     }
 
     @Bean
-    fun debeziumEngine(): DebeziumEngine<RecordChangeEvent<SourceRecord>> {
-        val props = debeziumConfiguration().asProperties()
+    fun debeziumEngine(debeziumConfig: Configuration): DebeziumEngine<RecordChangeEvent<SourceRecord>> {
+        val props = debeziumConfig.asProperties()
         
         return DebeziumEngine.create(ChangeEventFormat.of(Connect::class.java))
             .using(props)
-            .notifying { records: List<RecordChangeEvent<SourceRecord>>, committer: DebeziumEngine.RecordCommitter<RecordChangeEvent<SourceRecord>> ->
+            .notifying { records: List<RecordChangeEvent<SourceRecord>>, committer: RecordCommitter<RecordChangeEvent<SourceRecord>> ->
                 try {
                     records.forEach { record ->
                         handleRecord(record.record())
@@ -106,11 +107,11 @@ class DebeziumConfig(
                 "c", "u" -> {
                     val after = value.getStruct("after")
                     if (after != null) {
-                        orderOutboxConnector.processOutboxEvent(after)
+                        orderSagaConnector.processSagaStateChange(after)
                     }
                 }
                 "d" -> {
-                    logger.debug("Delete operation detected, skipping for outbox pattern")
+                    logger.debug("Delete operation detected, skipping for saga pattern")
                 }
                 else -> {
                     logger.warn("Unknown operation: $operation")
