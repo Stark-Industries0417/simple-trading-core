@@ -52,8 +52,7 @@ class OrderSagaConnector(
             val state = sagaRecord.getString("state")
             val eventType = sagaRecord.getString("event_type")
             val eventPayload = sagaRecord.getString("event_payload")
-            val topic = sagaRecord.getString("topic")
-            
+
             if (!shouldProcessSagaState(state)) {
                 logger.debug("Skipping saga state: $sagaId with state: $state")
                 return
@@ -74,8 +73,8 @@ class OrderSagaConnector(
             }
             
             val record = ProducerRecord(
-                topic,
-                symbol, // Use symbol as partition key for ordering
+                cdcProperties.kafka.orderEventsTopic,
+                symbol,
                 enrichedPayload
             )
             
