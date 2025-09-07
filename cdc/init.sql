@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS order_saga_states (
     state           VARCHAR(50) NOT NULL,
     event_type      VARCHAR(100) NOT NULL DEFAULT 'OrderCreatedEvent',
     event_payload   JSON NOT NULL DEFAULT '{}',
-    topic           VARCHAR(100) NOT NULL DEFAULT 'order.events',
     started_at      TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     completed_at    TIMESTAMP(6),
     timeout_at      TIMESTAMP(6) NOT NULL,

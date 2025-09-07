@@ -32,10 +32,7 @@ class OrderSagaState(
     
     @Column(columnDefinition = "JSON", nullable = false)
     var eventPayload: String = "{}",
-    
-    @Column(nullable = false)
-    val topic: String = "order.events",
-    
+
     @Column(nullable = false)
     var lastModifiedAt: Instant = Instant.now()
 ) : SagaState(
