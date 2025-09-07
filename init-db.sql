@@ -32,6 +32,46 @@ CREATE TABLE IF NOT EXISTS orders (
     INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS order_saga_states (
+    saga_id         VARCHAR(255) PRIMARY KEY,
+    trade_id        VARCHAR(255),
+    order_id        VARCHAR(255) NOT NULL,
+    user_id         VARCHAR(255) NOT NULL,
+    symbol          VARCHAR(50) NOT NULL,
+    order_type      VARCHAR(50) NOT NULL,
+    state           VARCHAR(50) NOT NULL,
+    started_at      TIMESTAMP(6) NOT NULL,
+    completed_at    TIMESTAMP(6),
+    timeout_at      TIMESTAMP(6) NOT NULL,
+    metadata        TEXT,
+    version         BIGINT DEFAULT 0,
+    
+    INDEX idx_saga_order (order_id),
+    INDEX idx_saga_user (user_id),
+    INDEX idx_saga_state (state),
+    INDEX idx_saga_timeout (state, timeout_at),
+    INDEX idx_saga_symbol_state (symbol, state)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS order_outbox_events (
+    event_id        VARCHAR(255) PRIMARY KEY,
+    aggregate_id    VARCHAR(255) NOT NULL,
+    event_type      VARCHAR(100) NOT NULL,
+    payload         TEXT NOT NULL,
+    order_id        VARCHAR(255) NOT NULL,
+    user_id         VARCHAR(255) NOT NULL,
+    saga_id         VARCHAR(255),
+    trade_id        VARCHAR(255),
+    status          VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+    created_at      TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    processed_at    TIMESTAMP(6),
+    
+    INDEX idx_outbox_order (order_id),
+    INDEX idx_outbox_saga (saga_id),
+    INDEX idx_outbox_status (status),
+    INDEX idx_outbox_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 
 -- ========================================
 -- Account Module Tables
