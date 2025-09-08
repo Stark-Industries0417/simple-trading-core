@@ -63,7 +63,23 @@ class AccountSagaTimeoutScheduler(
         saga.markTimeout()
         sagaRepository.save(saga)
         
-        val metadata = objectMapper.readValue(saga.metadata ?: "{}", Map::class.java)
+        // eventPayload에서 원본 이벤트 정보 추출
+        val originalEventJson = saga.eventPayload
+        val originalEvent = try {
+            objectMapper.readTree(originalEventJson)
+        } catch (e: Exception) {
+            structuredLogger.error("Failed to parse event payload",
+                mapOf(
+                    "sagaId" to saga.sagaId,
+                    "error" to (e.message ?: "Unknown error")
+                )
+            )
+            objectMapper.createObjectNode()
+        }
+        
+        val buyUserId = originalEvent.get("buyUserId")?.asText()
+        val sellUserId = originalEvent.get("sellUserId")?.asText()
+        val symbol = originalEvent.get("symbol")?.asText() ?: ""
         
         // Publish AccountUpdateFailedEvent for saga compensation
         val failedEvent = AccountUpdateFailedEvent(
@@ -74,8 +90,8 @@ class AccountSagaTimeoutScheduler(
             sagaId = saga.sagaId,
             tradeId = saga.tradeId,
             orderId = saga.orderId,
-            buyUserId = metadata["buyUserId"] as? String,
-            sellUserId = metadata["sellUserId"] as? String,
+            buyUserId = buyUserId,
+            sellUserId = sellUserId,
             reason = "Account update timeout after $accountTimeoutSeconds seconds",
             failureType = AccountUpdateFailedEvent.FailureType.TECHNICAL_ERROR,
             shouldRetry = true
@@ -89,7 +105,7 @@ class AccountSagaTimeoutScheduler(
         
         kafkaTemplate.send(
             "account.events",
-            metadata["symbol"] as? String ?: "",
+            symbol,
             objectMapper.writeValueAsString(timeoutEventNode)
         )
         
@@ -103,8 +119,7 @@ class AccountSagaTimeoutScheduler(
             orderId = saga.orderId,
             tradeId = saga.tradeId,
             failedAt = "Account",
-            timeoutDuration = accountTimeoutSeconds,
-            metadata = mapOf("reason" to "Account processing timeout")
+            timeoutDuration = accountTimeoutSeconds
         )
         
         kafkaTemplate.send(

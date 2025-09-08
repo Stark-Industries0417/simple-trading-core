@@ -383,12 +383,38 @@ class AccountSagaService(
     }
     
     private fun handleTradeFailed(event: TradeFailedEvent) {
-        structuredLogger.info("Trade failed, no account update needed",
+        structuredLogger.info("Trade failed, releasing reservations",
             mapOf(
                 "sagaId" to event.sagaId,
                 "orderId" to event.orderId,
-                "reason" to event.reason
+                "symbol" to event.symbol,
+                "reason" to event.reason,
+                "traceId" to event.traceId
             )
         )
+        
+        val releaseSuccess = accountService.releaseReservationByOrderId(
+            orderId = event.orderId,
+            traceId = event.traceId
+        )
+        
+        if (releaseSuccess) {
+            structuredLogger.info("Reservation released successfully",
+                mapOf(
+                    "sagaId" to event.sagaId,
+                    "orderId" to event.orderId,
+                    "traceId" to event.traceId
+                )
+            )
+        } else {
+            structuredLogger.warn("Failed to release reservation",
+                mapOf(
+                    "sagaId" to event.sagaId,
+                    "orderId" to event.orderId,
+                    "reason" to event.reason,
+                    "traceId" to event.traceId
+                )
+            )
+        }
     }
 }
