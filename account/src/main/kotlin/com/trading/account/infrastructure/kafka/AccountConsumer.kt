@@ -2,11 +2,9 @@ package com.trading.account.infrastructure.kafka
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.trading.account.application.AccountService
-import com.trading.account.application.AccountUpdateResult
 import com.trading.account.domain.ReservationResult
 import com.trading.account.domain.StockReservationResult
 import com.trading.common.dto.order.OrderSide
-import com.trading.common.event.matching.TradeExecutedEvent
 import com.trading.common.event.order.OrderCancelledEvent
 import com.trading.common.event.order.OrderCreatedEvent
 import com.trading.common.logging.StructuredLogger
@@ -18,14 +16,9 @@ import org.springframework.messaging.handler.annotation.Header
 import org.springframework.messaging.handler.annotation.Payload
 import org.springframework.stereotype.Component
 
-/**
- * 통합 이벤트 컨슈머
- * 
- * 단일 컨슈머에서 모든 이벤트 타입을 처리하여 순서 보장
- * - OrderCreatedEvent: 결제 예약
- * - TradeExecutedEvent: 체결 확정
- * - OrderCancelledEvent: 예약 취소
- */
+
+
+
 @Component
 class AccountConsumer(
     private val accountService: AccountService,
@@ -38,7 +31,7 @@ class AccountConsumer(
     }
     
     @KafkaListener(
-        topics = ["#{@kafkaProperties.topics.orderEvents}", "#{@kafkaProperties.topics.tradeEvents}"],
+        topics = ["#{@kafkaProperties.topics.orderEvents}"],
         groupId = "#{@kafkaProperties.consumer.groupId}",
         containerFactory = "kafkaListenerContainerFactory"
     )
@@ -80,10 +73,6 @@ class AccountConsumer(
                 "OrderCreatedEvent" -> {
                     val orderEvent = objectMapper.treeToValue(jsonNode, OrderCreatedEvent::class.java)
                     handleOrderCreated(orderEvent, startTime)
-                }
-                "TradeExecutedEvent" -> {
-                    val tradeEvent = objectMapper.treeToValue(jsonNode, TradeExecutedEvent::class.java)
-                    handleTradeExecuted(tradeEvent, startTime)
                 }
                 "OrderCancelledEvent" -> {
                     val cancelEvent = objectMapper.treeToValue(jsonNode, OrderCancelledEvent::class.java)
@@ -138,7 +127,11 @@ class AccountConsumer(
                 if (orderPrice != null) {
                     val amount = orderPrice * order.quantity
                     val result = accountService.reserveFundsForOrder(
+                        orderId = order.orderId,
                         userId = order.userId,
+                        symbol = order.symbol,
+                        quantity = order.quantity,
+                        price = orderPrice,
                         amount = amount,
                         traceId = order.traceId
                     )
@@ -167,7 +160,7 @@ class AccountConsumer(
                                     "traceId" to order.traceId
                                 )
                             )
-                            // TODO: 보상 이벤트 발행
+                            // 보상 이벤트는 Order 모듈에서 처리
                             false
                         }
                     }
@@ -179,9 +172,11 @@ class AccountConsumer(
             
             OrderSide.SELL -> {
                 val result = accountService.reserveStocksForOrder(
+                    orderId = order.orderId,
                     userId = order.userId,
                     symbol = order.symbol,
                     quantity = order.quantity,
+                    price = order.price,
                     traceId = order.traceId
                 )
                 
@@ -222,59 +217,6 @@ class AccountConsumer(
             logger.info("Order {} reservation failed, continuing", order.orderId)
         }
     }
-    
-    private fun handleTradeExecuted(
-        tradeEvent: TradeExecutedEvent,
-        startTime: Long
-    ) {
-        
-        structuredLogger.info("Processing trade executed event",
-            mapOf(
-                "tradeId" to tradeEvent.tradeId,
-                "buyUserId" to tradeEvent.buyUserId,
-                "sellUserId" to tradeEvent.sellUserId,
-                "symbol" to tradeEvent.symbol,
-                "quantity" to tradeEvent.quantity.toString(),
-                "price" to tradeEvent.price.toString(),
-                "traceId" to tradeEvent.traceId
-            )
-        )
-        
-        val result = accountService.processTradeExecution(tradeEvent)
-        
-        when (result) {
-            is AccountUpdateResult.Success -> {
-                structuredLogger.info("Trade execution confirmed",
-                    mapOf(
-                        "tradeId" to tradeEvent.tradeId,
-                        "buyerNewBalance" to result.buyerNewBalance.toString(),
-                        "sellerNewBalance" to result.sellerNewBalance.toString(),
-                        "processingTimeMs" to (System.currentTimeMillis() - startTime).toString(),
-                        "traceId" to tradeEvent.traceId
-                    )
-                )
-            }
-            
-            is AccountUpdateResult.Failure -> {
-                structuredLogger.error("Trade execution failed",
-                    mapOf(
-                        "tradeId" to tradeEvent.tradeId,
-                        "reason" to result.reason,
-                        "shouldRetry" to result.shouldRetry.toString(),
-                        "traceId" to tradeEvent.traceId
-                    )
-                )
-                
-                if (result.shouldRetry) {
-                    throw RetryableException(
-                        "Trade processing failed but is retryable: ${result.reason}"
-                    )
-                }
-                // TODO: 보상 이벤트 발행 for non-retryable failures
-            }
-        }
-    }
-    
     private fun handleOrderCancelled(
         cancelEvent: OrderCancelledEvent,
         startTime: Long
@@ -289,8 +231,7 @@ class AccountConsumer(
             )
         )
         
-        val releaseSuccess = accountService.releaseReservation(
-            userId = cancelEvent.userId,
+        val releaseSuccess = accountService.releaseReservationByOrderId(
             orderId = cancelEvent.orderId,
             traceId = cancelEvent.traceId
         )
