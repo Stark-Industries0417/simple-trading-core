@@ -25,30 +25,17 @@ class OrderSagaState(
     val orderType: String,
     state: SagaStatus = SagaStatus.STARTED,
     timeoutAt: Instant,
-    metadata: String? = null,
-    
-    @Column(nullable = false)
-    var eventType: String = "OrderCreated",
-    
-    @Column(columnDefinition = "JSON", nullable = false)
-    var eventPayload: String = "{}",
-
-    @Column(nullable = false)
-    var lastModifiedAt: Instant = Instant.now()
+    eventType: String = "OrderCreated",
+    eventPayload: String = "{}"
 ) : SagaState(
     sagaId = sagaId,
     tradeId = tradeId,
     orderId = orderId,
     state = state,
     timeoutAt = timeoutAt,
-    metadata = metadata
+    eventType = eventType,
+    eventPayload = eventPayload
 ) {
-    
-    fun updateEvent(newEventType: String, newEventPayload: String) {
-        this.eventType = newEventType
-        this.eventPayload = newEventPayload
-        this.lastModifiedAt = Instant.now()
-    }
     
     fun isOrderRelatedOperation(): Boolean {
         return orderType in listOf("MARKET", "LIMIT", "STOP")
@@ -60,10 +47,5 @@ class OrderSagaState(
     
     fun toSagaInfo(): String {
         return "OrderSaga[sagaId=$sagaId, orderId=$orderId, userId=$userId, symbol=$symbol, orderType=$orderType, state=$state]"
-    }
-    
-    @PreUpdate
-    fun preUpdate() {
-        lastModifiedAt = Instant.now()
     }
 }
