@@ -19,8 +19,14 @@ abstract class SagaState(
     open var completedAt: Instant? = null,
     open var timeoutAt: Instant,
     
-    @Column(columnDefinition = "TEXT")
-    open var metadata: String? = null,
+    @Column(nullable = false)
+    open var eventType: String = "",
+    
+    @Column(columnDefinition = "JSON", nullable = false)
+    open var eventPayload: String = "{}",
+    
+    @Column(nullable = false)
+    open var lastModifiedAt: Instant = Instant.now(),
     
     @Version
     open var version: Long = 0
@@ -38,10 +44,13 @@ abstract class SagaState(
         completedAt = Instant.now()
     }
     
-    fun markFailed(newMetadata: String? = null) {
+    fun markFailed(failureReason: String? = null) {
         state = SagaStatus.FAILED
         completedAt = Instant.now()
-        newMetadata?.let { metadata = it }
+        failureReason?.let { 
+            val payload = """{"failureReason": "$it"}"""
+            updateEvent("SagaFailed", payload)
+        }
     }
     
     fun markCompensating() {
@@ -56,5 +65,16 @@ abstract class SagaState(
     fun markTimeout() {
         state = SagaStatus.TIMEOUT
         completedAt = Instant.now()
+    }
+    
+    fun updateEvent(newEventType: String, newEventPayload: String) {
+        this.eventType = newEventType
+        this.eventPayload = newEventPayload
+        this.lastModifiedAt = Instant.now()
+    }
+    
+    @PreUpdate
+    fun preUpdate() {
+        lastModifiedAt = Instant.now()
     }
 }

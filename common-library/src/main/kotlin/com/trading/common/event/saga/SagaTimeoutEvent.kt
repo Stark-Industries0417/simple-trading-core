@@ -13,5 +13,5 @@ data class SagaTimeoutEvent(
     val tradeId: String? = null,
     val failedAt: String,
     val timeoutDuration: Long,
-    val metadata: Map<String, Any>? = null
+    val eventPayload: String = "{}"
 ) : DomainEvent
