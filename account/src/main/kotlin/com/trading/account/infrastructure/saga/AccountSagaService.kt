@@ -21,7 +21,6 @@ import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.math.BigDecimal
 import java.time.Instant
 
 @Service
@@ -98,17 +97,8 @@ class AccountSagaService(
             orderId = event.buyOrderId,
             state = SagaStatus.IN_PROGRESS,
             timeoutAt = Instant.now().plusSeconds(accountTimeoutSeconds),
-            metadata = objectMapper.writeValueAsString(mapOf(
-                "tradeId" to event.tradeId,
-                "buyOrderId" to event.buyOrderId,
-                "sellOrderId" to event.sellOrderId,
-                "buyUserId" to event.buyUserId,
-                "sellUserId" to event.sellUserId,
-                "symbol" to event.symbol,
-                "quantity" to event.quantity.toString(),
-                "price" to event.price.toString(),
-                "amount" to (event.price * event.quantity).toString()
-            ))
+            eventType = "TradeExecutedEvent",
+            eventPayload = objectMapper.writeValueAsString(event)
         )
         val savedSaga = sagaRepository.save(sagaState)
         
@@ -139,7 +129,6 @@ class AccountSagaService(
                     
                     val eventNode = objectMapper.createObjectNode()
                     eventNode.put("eventType", "AccountUpdated")
-                    eventNode.put("sagaId", savedSaga.sagaId)
                     val updatedEventNode = objectMapper.valueToTree<ObjectNode>(updatedEvent)
                     eventNode.setAll<ObjectNode>(updatedEventNode)
                     
@@ -293,21 +282,15 @@ class AccountSagaService(
         }
         
         try {
-            val metadata = objectMapper.readValue(saga.metadata ?: "{}", Map::class.java)
-            val buyUserId = metadata["buyUserId"] as? String ?: ""
-            val sellUserId = metadata["sellUserId"] as? String ?: ""
-            val amount = BigDecimal(metadata["amount"] as? String ?: "0")
-            val quantity = BigDecimal(metadata["quantity"] as? String ?: "0")
-            val price = BigDecimal(metadata["price"] as? String ?: "0")
-            val symbol = metadata["symbol"] as? String ?: ""
-
+            val originalEvent = objectMapper.readValue(saga.eventPayload, TradeExecutedEvent::class.java)
+            
             val rollbackResult = accountService.rollbackTradeExecution(
                 tradeId = event.tradeId,
-                buyUserId = buyUserId,
-                sellUserId = sellUserId,
-                symbol = symbol,
-                quantity = quantity,
-                price = price,
+                buyUserId = originalEvent.buyUserId,
+                sellUserId = originalEvent.sellUserId,
+                symbol = originalEvent.symbol,
+                quantity = originalEvent.quantity,
+                price = originalEvent.price,
                 traceId = event.traceId
             )
 
@@ -320,8 +303,8 @@ class AccountSagaService(
                         mapOf(
                             "sagaId" to event.sagaId,
                             "tradeId" to event.tradeId,
-                            "buyUserId" to buyUserId,
-                            "sellUserId" to sellUserId,
+                            "buyUserId" to originalEvent.buyUserId,
+                            "sellUserId" to originalEvent.sellUserId,
                             "buyerNewBalance" to rollbackResult.buyerNewBalance.toString(),
                             "sellerNewBalance" to rollbackResult.sellerNewBalance.toString()
                         )
@@ -335,11 +318,11 @@ class AccountSagaService(
                         sagaId = event.sagaId,
                         tradeId = event.tradeId,
                         orderId = event.orderId,
-                        userId = buyUserId,
+                        userId = originalEvent.buyUserId,
                         rollbackType = AccountRollbackEvent.RollbackType.REVERSE_TRADE,
-                        amount = amount,
-                        quantity = quantity,
-                        symbol = symbol,
+                        amount = originalEvent.price * originalEvent.quantity,
+                        quantity = originalEvent.quantity,
+                        symbol = originalEvent.symbol,
                         success = true,
                         reason = "Trade rollback completed successfully"
                     )
@@ -367,11 +350,11 @@ class AccountSagaService(
                         sagaId = event.sagaId,
                         tradeId = event.tradeId,
                         orderId = event.orderId,
-                        userId = buyUserId,
+                        userId = originalEvent.buyUserId,
                         rollbackType = AccountRollbackEvent.RollbackType.REVERSE_TRADE,
-                        amount = amount,
-                        quantity = quantity,
-                        symbol = symbol,
+                        amount = originalEvent.price * originalEvent.quantity,
+                        quantity = originalEvent.quantity,
+                        symbol = originalEvent.symbol,
                         success = false,
                         reason = "Rollback failed: ${rollbackResult.reason}"
                     )
@@ -380,7 +363,7 @@ class AccountSagaService(
 
             kafkaTemplate.send(
                 "account.events",
-                symbol,
+                originalEvent.symbol,
                 objectMapper.writeValueAsString(rollbackEvent)
             )
 
