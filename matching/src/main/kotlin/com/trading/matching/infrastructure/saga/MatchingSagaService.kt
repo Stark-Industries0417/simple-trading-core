@@ -108,7 +108,8 @@ class MatchingSagaService(
             tradeId = tradeId ?: uuidGenerator.generateEventId(),
             state = SagaStatus.IN_PROGRESS,
             timeoutAt = Instant.now().plusSeconds(matchingTimeoutSeconds),
-            metadata = objectMapper.writeValueAsString(event)
+            eventType = "TradeExecutedEvent",
+            eventPayload = objectMapper.writeValueAsString(event)
         )
         val savedSaga = sagaRepository.save(sagaState)
 
@@ -135,7 +136,7 @@ class MatchingSagaService(
                 
                 val eventNode = objectMapper.valueToTree<ObjectNode>(tradeEvent)
                 eventNode.put("sagaId", savedSaga.sagaId)
-                eventNode.put("eventType", "TradeExecuted")
+                eventNode.put("eventType", "TradeExecutedEvent")
                 
                 kafkaTemplate.send(
                     kafkaProperties.topics.tradeEvents,
@@ -207,7 +208,7 @@ class MatchingSagaService(
         
         if (saga.state == SagaStatus.IN_PROGRESS) {
             try {
-                val originalEvent = objectMapper.readValue(saga.metadata ?: "{}", OrderCreatedEvent::class.java)
+                val originalEvent = objectMapper.readValue(saga.eventPayload, OrderCreatedEvent::class.java)
                 
                 val cancelSuccess = matchingEngineManager.removeOrderFromBook(
                     orderId = event.orderId,

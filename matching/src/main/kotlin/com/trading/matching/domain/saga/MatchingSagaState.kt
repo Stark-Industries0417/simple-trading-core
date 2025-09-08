@@ -14,12 +14,14 @@ class MatchingSagaState(
     orderId: String,
     state: SagaStatus = SagaStatus.IN_PROGRESS,
     timeoutAt: Instant,
-    metadata: String? = null
+    eventType: String = "OrderMatching",
+    eventPayload: String = "{}"
 ) : SagaState(
     sagaId = sagaId,
     tradeId = tradeId,
     orderId = orderId,
     state = state,
     timeoutAt = timeoutAt,
-    metadata = metadata
+    eventType = eventType,
+    eventPayload = eventPayload
 )
