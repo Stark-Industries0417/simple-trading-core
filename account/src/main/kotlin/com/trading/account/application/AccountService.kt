@@ -2,9 +2,11 @@ package com.trading.account.application
 
 import com.trading.account.domain.*
 import com.trading.account.infrastructure.persistence.AccountRepository
+import com.trading.account.infrastructure.persistence.ReservationInfoRepository
 import com.trading.account.infrastructure.persistence.StockHoldingRepository
 import com.trading.account.infrastructure.persistence.TransactionLogRepository
 
+import com.trading.common.dto.order.OrderSide
 import com.trading.common.event.matching.TradeExecutedEvent
 import com.trading.common.exception.account.InsufficientBalanceException
 import com.trading.common.logging.StructuredLogger
@@ -21,6 +23,7 @@ class AccountService(
     private val accountRepository: AccountRepository,
     private val stockHoldingRepository: StockHoldingRepository,
     private val transactionLogRepository: TransactionLogRepository,
+    private val reservationInfoRepository: ReservationInfoRepository,
     private val structuredLogger: StructuredLogger,
     private val uuidGenerator: UUIDv7Generator
 ) {
@@ -119,7 +122,15 @@ class AccountService(
         }
     }
     
-    fun reserveFundsForOrder(userId: String, amount: BigDecimal, traceId: String): ReservationResult {
+    fun reserveFundsForOrder(
+        orderId: String, 
+        userId: String, 
+        symbol: String,
+        quantity: BigDecimal,
+        price: BigDecimal,
+        amount: BigDecimal, 
+        traceId: String
+    ): ReservationResult {
         val account = accountRepository.findByUserIdWithLock(userId)
             ?: throw AccountNotFoundException("Account not found: $userId")
         
@@ -127,11 +138,25 @@ class AccountService(
         
         if (result is ReservationResult.Success) {
             accountRepository.save(account)
+            
+            val reservationInfo = ReservationInfo.createForBuyOrder(
+                orderId = orderId,
+                userId = userId,
+                symbol = symbol,
+                quantity = quantity,
+                price = price,
+                traceId = traceId
+            )
+            reservationInfoRepository.save(reservationInfo)
+            
             structuredLogger.info("Funds reserved",
                 mapOf(
+                    "orderId" to orderId,
                     "userId" to userId,
+                    "symbol" to symbol,
                     "amount" to amount.toString(),
-                    "reservationId" to result.reservationId
+                    "reservationId" to result.reservationId,
+                    "traceId" to traceId
                 )
             )
         }
@@ -139,7 +164,14 @@ class AccountService(
         return result
     }
     
-    fun reserveStocksForOrder(userId: String, symbol: String, quantity: BigDecimal, traceId: String): StockReservationResult {
+    fun reserveStocksForOrder(
+        orderId: String,
+        userId: String, 
+        symbol: String, 
+        quantity: BigDecimal,
+        price: BigDecimal? = null,
+        traceId: String
+    ): StockReservationResult {
         val holding = stockHoldingRepository.findByUserIdAndSymbolWithLock(userId, symbol)
             ?: return StockReservationResult.InsufficientShares(
                 required = quantity,
@@ -150,35 +182,120 @@ class AccountService(
         
         if (result is StockReservationResult.Success) {
             stockHoldingRepository.save(holding)
+            
+            val reservationInfo = ReservationInfo.createForSellOrder(
+                orderId = orderId,
+                userId = userId,
+                symbol = symbol,
+                quantity = quantity,
+                price = price,
+                traceId = traceId
+            )
+            reservationInfoRepository.save(reservationInfo)
+            
             structuredLogger.info("Stocks reserved",
                 mapOf(
+                    "orderId" to orderId,
                     "userId" to userId,
                     "symbol" to symbol,
                     "quantity" to quantity.toString(),
-                    "reservationId" to result.reservationId
+                    "reservationId" to result.reservationId,
+                    "traceId" to traceId
                 )
             )
         }
         
         return result
     }
-    
-    fun releaseReservation(userId: String, orderId: String, traceId: String): Boolean {
+
+    fun releaseReservationByOrderId(orderId: String, traceId: String): Boolean {
+        val startTime = System.currentTimeMillis()
+        
         return try {
-            structuredLogger.info("Processing reservation release",
-                mapOf(
-                    "userId" to userId,
-                    "orderId" to orderId,
-                    "traceId" to traceId
-                )
-            )
+            val reservationInfo = reservationInfoRepository.findByOrderId(orderId)
             
-            true
+            if (reservationInfo == null) {
+                structuredLogger.warn("No reservation info found for order",
+                    mapOf(
+                        "orderId" to orderId,
+                        "traceId" to traceId
+                    )
+                )
+                // 예약 정보가 없다는 것은 예약이 생성되지 않았거나 이미 처리됨
+                return true
+            }
+            
+            if (!reservationInfo.isActive()) {
+                structuredLogger.info("Reservation already processed",
+                    mapOf(
+                        "orderId" to orderId,
+                        "status" to reservationInfo.status.name,
+                        "traceId" to traceId
+                    )
+                )
+                return true
+            }
+            
+            val success = when (reservationInfo.side) {
+                OrderSide.BUY -> {
+                    val account = accountRepository.findByUserIdWithLock(reservationInfo.userId)
+                    if (account != null && reservationInfo.reservedAmount != null) {
+                        account.releaseReservation(reservationInfo.reservedAmount)
+                        accountRepository.save(account)
+                        
+                        structuredLogger.info("Cash reservation released using stored info",
+                            mapOf(
+                                "orderId" to orderId,
+                                "userId" to reservationInfo.userId,
+                                "amount" to reservationInfo.reservedAmount.toString(),
+                                "duration" to (System.currentTimeMillis() - startTime).toString(),
+                                "traceId" to traceId
+                            )
+                        )
+                        true
+                    } else {
+                        false
+                    }
+                }
+                
+                OrderSide.SELL -> {
+                    val holding = stockHoldingRepository.findByUserIdAndSymbolWithLock(
+                        reservationInfo.userId,
+                        reservationInfo.symbol
+                    )
+                    if (holding != null) {
+                        holding.releaseReservation(reservationInfo.quantity)
+                        stockHoldingRepository.save(holding)
+                        
+                        structuredLogger.info("Stock reservation released using stored info",
+                            mapOf(
+                                "orderId" to orderId,
+                                "userId" to reservationInfo.userId,
+                                "symbol" to reservationInfo.symbol,
+                                "quantity" to reservationInfo.quantity.toString(),
+                                "duration" to (System.currentTimeMillis() - startTime).toString(),
+                                "traceId" to traceId
+                            )
+                        )
+                        true
+                    } else {
+                        true // 주식 보유가 없으면 예약도 없었을 것
+                    }
+                }
+            }
+            
+            if (success) {
+                reservationInfo.release()
+                reservationInfoRepository.save(reservationInfo)
+            }
+            
+            success
+            
         } catch (ex: Exception) {
-            structuredLogger.error("Failed to release reservation",
+            structuredLogger.error("Failed to release reservation by orderId",
                 mapOf(
-                    "userId" to userId,
                     "orderId" to orderId,
+                    "error" to (ex.message ?: "Unknown error"),
                     "traceId" to traceId
                 ),
                 ex
