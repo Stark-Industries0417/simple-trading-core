@@ -24,16 +24,8 @@ import java.time.Duration
 import java.time.Instant
 import java.util.*
 
-/**
- * Kafka Transactional Matching Processor
- * 
- * Native Kafka를 직접 사용하여 Exactly-Once 처리를 보장합니다.
- * Spring Kafka 대신 Native Kafka를 사용하는 이유:
- * - 트랜잭션 처리에 대한 세밀한 제어
- * - 오프셋 커밋 타이밍 정확한 제어
- * - 매칭 엔진의 Lock-free 특성과 일관성 유지
- */
-@Component
+
+
 class TransactionalMatchingProcessor(
     private val kafkaProperties: KafkaProperties,
     private val matchingEngineManager: MatchingEngineManager,
