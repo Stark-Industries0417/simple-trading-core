@@ -1,5 +1,6 @@
 package com.trading.cdc.config
 
+import com.trading.cdc.connector.MatchingOutboxConnector
 import com.trading.cdc.connector.OrderOutboxConnector
 import com.trading.cdc.connector.OrderSagaConnector
 import io.debezium.config.Configuration
@@ -18,7 +19,8 @@ import java.util.*
 @Component
 class DebeziumConfig(
     private val cdcProperties: CdcProperties,
-    private val orderOutboxConnector: OrderOutboxConnector
+    private val orderOutboxConnector: OrderOutboxConnector,
+    private val matchingOutboxConnector: MatchingOutboxConnector
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -40,7 +42,8 @@ class DebeziumConfig(
             
             put("table.include.list",
                 "${cdcProperties.database.name}.order_saga_states," +
-                "${cdcProperties.database.name}.order_outbox_events"
+                "${cdcProperties.database.name}.order_outbox_events," +
+                "${cdcProperties.database.name}.matching_outbox_events"
             )
             
             put("database.history", "io.debezium.relational.history.FileDatabaseHistory")
@@ -103,7 +106,11 @@ class DebeziumConfig(
                         when (table) {
                             "order_outbox_events" -> {
                                 logger.info("Processing order_outbox_events INSERT/UPDATE")
-                                orderOutboxConnector.processOutboxEvent(after)
+                                orderOutboxConnector.processEvent(after)
+                            }
+                            "matching_outbox_events" -> {
+                                logger.info("Processing matching_outbox_events INSERT/UPDATE")
+                                matchingOutboxConnector.processEvent(after)
                             }
                             else -> {
                                 logger.debug("Unknown table: $table, skipping")

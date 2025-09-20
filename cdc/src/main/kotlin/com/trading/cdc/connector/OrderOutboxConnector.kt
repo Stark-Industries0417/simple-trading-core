@@ -1,7 +1,6 @@
 package com.trading.cdc.connector
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.trading.cdc.config.CdcProperties
 import com.trading.cdc.health.CdcHealthIndicator
 import com.trading.common.dto.cdc.order.OrderCreatedDto
@@ -25,7 +24,7 @@ class OrderOutboxConnector(
     private val cdcProperties: CdcProperties,
     private val objectMapper: ObjectMapper,
     private val healthIndicator: CdcHealthIndicator
-) {
+) : CdcConnector {
     private val logger = LoggerFactory.getLogger(javaClass)
     private lateinit var kafkaProducer: KafkaProducer<String, String>
     
@@ -48,7 +47,7 @@ class OrderOutboxConnector(
         logger.info("OrderOutboxConnector initialized with Kafka broker: ${cdcProperties.kafka.bootstrapServers}")
     }
     
-    fun processOutboxEvent(outboxRecord: Struct) {
+    override fun processEvent(outboxRecord: Struct) {
         try {
             val outboxEvent = mapToOrderOutboxEvent(outboxRecord)
 
@@ -163,5 +162,13 @@ class OrderOutboxConnector(
         } catch (e: Exception) {
             logger.error("Error during shutdown: ${e.message}", e)
         }
+    }
+
+    override fun getConnectorName(): String {
+        return "OrderOutboxConnector"
+    }
+
+    override fun getSourceTable(): String {
+        return "order_outbox_events"
     }
 }
