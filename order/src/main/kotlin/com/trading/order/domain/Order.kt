@@ -5,6 +5,7 @@ import com.trading.common.dto.order.OrderStatus
 import com.trading.common.dto.order.OrderType
 import com.trading.common.exception.order.OrderStateException
 import com.trading.common.util.UUIDv7Generator
+import com.trading.order.infrastructure.outbox.OrderOutboxEvent
 import jakarta.persistence.*
 import java.math.BigDecimal
 import java.time.Instant
@@ -54,9 +55,6 @@ class Order private constructor(
     @Column(nullable = false)
     var updatedAt: Instant = Instant.now(),
     
-    @Column(nullable = false, length = 36)
-    val traceId: String,
-    
     @Version
     var version: Long = 0,
     
@@ -77,14 +75,12 @@ class Order private constructor(
             side: OrderSide,
             quantity: BigDecimal,
             price: BigDecimal?,
-            traceId: String,
             uuidGenerator: UUIDv7Generator
         ): Order {
             require(userId.isNotBlank()) { "User ID cannot be blank" }
             require(symbol.isNotBlank()) { "Symbol cannot be blank" }
             require(quantity > BigDecimal.ZERO) { "Quantity must be positive" }
-            require(traceId.isNotBlank()) { "Trace ID cannot be blank" }
-            
+
             if (orderType == OrderType.LIMIT) {
                 requireNotNull(price) { "Price is required for LIMIT orders" }
                 require(price > BigDecimal.ZERO) { "Price must be positive" }
@@ -97,8 +93,7 @@ class Order private constructor(
                 orderType = orderType,
                 side = side,
                 quantity = quantity,
-                price = price,
-                traceId = traceId
+                price = price
             )
         }
     }
@@ -200,7 +195,37 @@ class Order private constructor(
     fun isBuyOrder(): Boolean = side == OrderSide.BUY
     
     fun isSellOrder(): Boolean = side == OrderSide.SELL
-    
+
+    fun toOutboxEvent(
+        sagaId: String,
+    ): OrderOutboxEvent {
+        return OrderOutboxEvent.create(
+            sagaId = sagaId,
+            orderId = id,
+            userId = userId,
+            symbol = symbol,
+            orderType = orderType.name,
+            side = side.name,
+            quantity = quantity,
+            price = price,
+        )
+    }
+
+    fun toCancelledOutboxEvent(
+        sagaId: String,
+    ): OrderOutboxEvent {
+        return OrderOutboxEvent.createOrderCancelledEvent(
+            sagaId = sagaId,
+            orderId = id,
+            userId = userId,
+            symbol = symbol,
+            orderType = orderType.name,
+            side = side.name,
+            quantity = quantity,
+            price = price,
+        )
+    }
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is Order) return false
