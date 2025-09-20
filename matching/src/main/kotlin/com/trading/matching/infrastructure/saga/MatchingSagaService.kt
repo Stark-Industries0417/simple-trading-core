@@ -8,7 +8,6 @@ import com.trading.common.event.order.OrderCancelledEvent
 import com.trading.common.event.order.OrderCreatedEvent
 import com.trading.common.event.saga.TradeFailedEvent
 import com.trading.common.event.saga.TradeRollbackEvent
-import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.UUIDv7Generator
 import com.trading.matching.config.KafkaProperties
 import com.trading.matching.domain.saga.MatchingSagaRepository
@@ -29,7 +28,6 @@ class MatchingSagaService(
     private val sagaRepository: MatchingSagaRepository,
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val objectMapper: ObjectMapper,
-    private val structuredLogger: StructuredLogger,
     private val uuidGenerator: UUIDv7Generator,
     private val kafkaProperties: KafkaProperties,
     @Value("\${saga.timeouts.matching:10}") private val matchingTimeoutSeconds: Long = 10
@@ -45,16 +43,8 @@ class MatchingSagaService(
             val jsonNode = objectMapper.readTree(eventPayload)
             
             val eventType = jsonNode.get("eventType")?.asText()
-            if (eventType == null) {
-                structuredLogger.warn("Unknown event format, no eventType found",
-                    mapOf(
-                        "offset" to record.offset().toString(),
-                        "partition" to record.partition().toString()
-                    )
-                )
-                return
-            }
-            
+            if (eventType == null) return
+
             when (eventType) {
                 "OrderCreatedEvent" -> {
                     val sagaId = jsonNode.get("sagaId").asText()
@@ -69,39 +59,15 @@ class MatchingSagaService(
                     processOrderCancelledEvent(event, sagaId)
                 }
                 else -> {
-                    structuredLogger.info("Ignoring event type: $eventType",
-                        mapOf(
-                            "eventType" to eventType,
-                            "offset" to record.offset().toString()
-                        )
-                    )
+
                 }
             }
         } catch (e: Exception) {
-            structuredLogger.error("Error processing order event",
-                mapOf(
-                    "error" to (e.message ?: "Unknown error"),
-                    "offset" to record.offset().toString(),
-                    "partition" to record.partition().toString(),
-                    "topic" to record.topic()
-                )
-            )
+            e.printStackTrace()
         }
     }
     
     private fun processOrderCreatedEvent(event: OrderCreatedEvent, sagaId: String, tradeId: String?) {
-        val startTime = System.currentTimeMillis()
-
-        structuredLogger.info("Processing OrderCreatedEvent",
-            mapOf(
-                "eventId" to event.eventId,
-                "sagaId" to sagaId,
-                "orderId" to event.order.orderId,
-                "symbol" to event.order.symbol,
-                "traceId" to event.traceId
-            )
-        )
-        
         val sagaState = MatchingSagaState(
             sagaId = sagaId,
             orderId = event.order.orderId,
@@ -133,7 +99,7 @@ class MatchingSagaService(
                     quantity = trade.quantity,
                     timestamp = trade.timestamp
                 )
-                
+
                 val eventNode = objectMapper.valueToTree<ObjectNode>(tradeEvent)
                 eventNode.put("sagaId", savedSaga.sagaId)
                 eventNode.put("eventType", "TradeExecutedEvent")
@@ -143,28 +109,8 @@ class MatchingSagaService(
                     trade.symbol,
                     objectMapper.writeValueAsString(eventNode)
                 )
-                
-                structuredLogger.info("Trade executed and event published",
-                    mapOf(
-                        "sagaId" to savedSaga.sagaId,
-                        "tradeId" to trade.tradeId,
-                        "orderId" to event.order.orderId,
-                        "symbol" to trade.symbol,
-                        "quantity" to trade.quantity.toString(),
-                        "price" to trade.price.toString()
-                    )
-                )
+
             }
-            val duration = System.currentTimeMillis() - startTime
-            structuredLogger.info("Matching completed successfully",
-                mapOf(
-                    "sagaId" to savedSaga.sagaId,
-                    "orderId" to event.order.orderId,
-                    "tradesCount" to trades.size.toString(),
-                    "duration" to duration.toString()
-                )
-            )
-            
         } catch (e: Exception) {
             savedSaga.markFailed(e.message)
             sagaRepository.save(savedSaga)
@@ -185,25 +131,10 @@ class MatchingSagaService(
                 event.order.symbol,
                 objectMapper.writeValueAsString(failedEvent)
             )
-            structuredLogger.error("Matching failed",
-                mapOf(
-                    "sagaId" to savedSaga.sagaId,
-                    "orderId" to event.order.orderId,
-                    "error" to (e.message ?: "Unknown error")
-                )
-            )
         }
     }
     
     private fun processOrderCancelledEvent(event: OrderCancelledEvent, @Suppress("UNUSED_PARAMETER") sagaId: String?) {
-        structuredLogger.info("Processing OrderCancelledEvent",
-            mapOf(
-                "eventId" to event.eventId,
-                "orderId" to event.orderId,
-                "reason" to event.reason
-            )
-        )
-        
         val saga = sagaRepository.findByOrderId(event.orderId)
         
         if (saga.state == SagaStatus.IN_PROGRESS) {
@@ -215,23 +146,10 @@ class MatchingSagaService(
                     symbol = originalEvent.order.symbol,
                     traceId = event.traceId
                 )
-                
                 if (cancelSuccess) {
-                    structuredLogger.info("Order cancelled in matching engine",
-                        mapOf(
-                            "sagaId" to saga.sagaId,
-                            "orderId" to event.orderId,
-                            "symbol" to originalEvent.order.symbol
-                        )
-                    )
+                        
                 } else {
-                    structuredLogger.warn("Order cancellation in matching engine failed or order already executed",
-                        mapOf(
-                            "sagaId" to saga.sagaId,
-                            "orderId" to event.orderId,
-                            "symbol" to originalEvent.order.symbol
-                        )
-                    )
+                        
                 }
                 
                 val rollbackEvent = TradeRollbackEvent(
@@ -253,23 +171,8 @@ class MatchingSagaService(
                     originalEvent.order.symbol,
                     objectMapper.writeValueAsString(rollbackEvent)
                 )
-                structuredLogger.info("Trade rollback event published",
-                    mapOf(
-                        "sagaId" to saga.sagaId,
-                        "tradeId" to saga.tradeId,
-                        "orderId" to event.orderId,
-                        "reason" to event.reason,
-                        "matchingCancelled" to cancelSuccess
-                    )
-                )
             } catch (e: Exception) {
-                structuredLogger.error("Failed to process order cancellation",
-                    mapOf(
-                        "sagaId" to saga.sagaId,
-                        "orderId" to event.orderId,
-                        "error" to (e.message ?: "Unknown error")
-                    )
-                )
+                e.printStackTrace()
             }
         }
         saga.markCompensated()

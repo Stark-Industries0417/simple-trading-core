@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.trading.common.event.order.OrderCreatedEvent
 import com.trading.common.event.order.OrderCancelledEvent
 import com.trading.common.exception.order.OrderValidationException
-import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.UUIDv7Generator
 import com.trading.order.domain.Order
 import com.trading.order.domain.OrderRepository
@@ -27,7 +26,6 @@ class OrderSagaService(
     private val orderRepository: OrderRepository,
     private val sagaRepository: OrderSagaRepository,
     private val objectMapper: ObjectMapper,
-    private val structuredLogger: StructuredLogger,
     private val uuidGenerator: UUIDv7Generator,
     private val orderMetrics: OrderMetrics,
     private val orderValidator: OrderValidator,
@@ -35,83 +33,50 @@ class OrderSagaService(
     private val orderServiceHelper: OrderServiceHelper
 ) {
     fun createOrderWithSaga(request: CreateOrderRequest, userId: String, traceId: String): OrderResponse {
-        val startTime = System.currentTimeMillis()
+        val order = Order.create(
+            userId = userId,
+            symbol = request.getNormalizedSymbol(),
+            orderType = request.orderType,
+            side = request.side,
+            quantity = request.quantity,
+            price = request.price,
+            traceId = traceId,
+            uuidGenerator = uuidGenerator
+        )
+        orderValidator.validateOrThrow(order)
+        val savedOrder = orderRepository.save(order)
 
-        structuredLogger.info("Order creation started", buildMap {
-            put("userId", userId)
-            put("symbol", request.symbol)
-            put("orderType", request.orderType.name)
-            put("side", request.side.name)
-            put("quantity", request.quantity.toString())
-            request.price?.let { put("price", it.toString()) }
-            put("traceId", traceId)
-        })
-        var order: Order? = null
+        val sagaId = uuidGenerator.generateEventId()
+        val tradeId = uuidGenerator.generateEventId()
 
-        try {
-            order = Order.create(
-                userId = userId,
-                symbol = request.getNormalizedSymbol(),
-                orderType = request.orderType,
-                side = request.side,
-                quantity = request.quantity,
-                price = request.price,
-                traceId = traceId,
-                uuidGenerator = uuidGenerator
-            )
-            orderValidator.validateOrThrow(order)
-            val savedOrder = orderRepository.save(order)
+        val event = OrderCreatedEvent(
+            eventId = uuidGenerator.generateEventId(),
+            aggregateId = savedOrder.id,
+            occurredAt = Instant.now(),
+            traceId = traceId,
+            order = savedOrder.toDTO()
+        )
 
-            val sagaId = uuidGenerator.generateEventId()
-            val tradeId = uuidGenerator.generateEventId()
+        val sagaState = OrderSagaState(
+            sagaId = sagaId,
+            tradeId = tradeId,
+            orderId = savedOrder.id,
+            userId = userId,
+            symbol = savedOrder.symbol,
+            orderType = savedOrder.orderType.name,
+            state = SagaStatus.STARTED,
+            timeoutAt = Instant.now().plusSeconds(30),
+            eventType = "OrderCreatedEvent",
+            eventPayload = objectMapper.writeValueAsString(event)
+        )
+        sagaRepository.save(sagaState)
 
-            val event = OrderCreatedEvent(
-                eventId = uuidGenerator.generateEventId(),
-                aggregateId = savedOrder.id,
-                occurredAt = Instant.now(),
-                traceId = traceId,
-                order = savedOrder.toDTO()
-            )
-            
-            val sagaState = OrderSagaState(
-                sagaId = sagaId,
-                tradeId = tradeId,
-                orderId = savedOrder.id,
-                userId = userId,
-                symbol = savedOrder.symbol,
-                orderType = savedOrder.orderType.name,
-                state = SagaStatus.STARTED,
-                timeoutAt = Instant.now().plusSeconds(30),
-                eventType = "OrderCreatedEvent",
-                eventPayload = objectMapper.writeValueAsString(event)
-            )
-            sagaRepository.save(sagaState)
-
-            val duration = System.currentTimeMillis() - startTime
-            structuredLogger.info("Order created with saga",
-                buildMap {
-                    put("sagaId", sagaId)
-                    put("orderId", savedOrder.id)
-                    put("userId", userId)
-                    put("symbol", savedOrder.symbol)
-                    put("traceId", traceId)
-                    put("duration", duration.toString())
-                }
-            )
-            return OrderResponse.from(savedOrder)
-        } catch (ex: OrderValidationException) {
-            orderMetrics.incrementValidationFailures()
-            throw ex.withServiceContext(userId, request.symbol)
-        } catch (ex: DataIntegrityViolationException) {
-            orderServiceHelper.handlePersistenceException(ex, order, userId, request.symbol, startTime)
-        } catch (ex: Exception) {
-            orderServiceHelper.handleUnexpectedException(ex, order, userId, request.symbol, startTime, "order creation")
-        }
+        return OrderResponse.from(savedOrder)
     }
 
     fun cancelOrderWithSaga(orderId: String, userId: String, reason: String, traceId: String): OrderResponse {
         val order = orderCancellationValidator.validateAndRetrieveOrderForCancellation(orderId, userId)
-        
+
         order.cancel(reason)
         val savedOrder = orderRepository.save(order)
 
@@ -126,7 +91,7 @@ class OrderSagaService(
         )
 
         val compensationSagaId = uuidGenerator.generateEventId()
-        
+
         val compensationSagaState = OrderSagaState(
             sagaId = compensationSagaId,
             tradeId = uuidGenerator.generateEventId(),
@@ -140,17 +105,6 @@ class OrderSagaService(
             eventPayload = objectMapper.writeValueAsString(cancelEvent)
         )
         sagaRepository.save(compensationSagaState)
-
-        structuredLogger.info("Order cancelled with saga compensation",
-            mapOf(
-                "sagaId" to compensationSagaId,
-                "orderId" to orderId,
-                "userId" to userId,
-                "reason" to reason,
-                "traceId" to traceId
-            )
-        )
-        
         return OrderResponse.from(savedOrder)
     }
 }

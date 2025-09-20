@@ -35,7 +35,6 @@ class DebeziumConfig(
             put("database.user", cdcProperties.database.username)
             put("database.password", cdcProperties.database.password)
             put("database.dbname", cdcProperties.database.name)
-            put("database.server.id", cdcProperties.debezium.serverId)
             put("database.server.name", cdcProperties.debezium.serverName)
             
             put("table.include.list", "${cdcProperties.database.name}.order_saga_states")

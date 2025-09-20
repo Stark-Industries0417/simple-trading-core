@@ -5,7 +5,6 @@ import com.trading.common.dto.order.OrderStatus
 import com.trading.common.dto.order.OrderType
 import com.trading.common.exception.order.OrderNotFoundException
 import com.trading.common.exception.order.OrderValidationException
-import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.UUIDv7Generator
 import com.trading.order.domain.*
 import com.trading.order.infrastructure.web.dto.CreateOrderRequest
@@ -24,7 +23,6 @@ class OrderServiceTest {
     private lateinit var orderService: OrderService
     private lateinit var orderRepository: OrderRepository
     private lateinit var orderValidator: OrderValidator
-    private lateinit var structuredLogger: StructuredLogger
     private lateinit var uuidGenerator: UUIDv7Generator
     private lateinit var orderMetrics: OrderMetrics
     private lateinit var outboxRepository: OrderOutboxRepository
@@ -34,16 +32,18 @@ class OrderServiceTest {
     fun setUp() {
         orderRepository = mockk()
         orderValidator = mockk()
-        structuredLogger = mockk(relaxed = true)
         uuidGenerator = mockk()
         orderMetrics = mockk(relaxed = true)
         outboxRepository = mockk()
         objectMapper = mockk(relaxed = true)
 
         orderService = OrderService(
-            orderRepository, orderValidator,
-            structuredLogger, uuidGenerator, orderMetrics,
-            outboxRepository, objectMapper
+            orderRepository,
+            orderValidator,
+            uuidGenerator,
+            orderMetrics,
+            outboxRepository,
+            objectMapper
         )
 
         every { uuidGenerator.generateOrderId() } returns "ORDER-123"

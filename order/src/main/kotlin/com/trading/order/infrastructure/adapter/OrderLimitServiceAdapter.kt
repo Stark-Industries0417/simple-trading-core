@@ -1,6 +1,5 @@
 package com.trading.order.infrastructure.adapter
 
-import com.trading.common.logging.StructuredLogger
 import com.trading.order.domain.OrderLimitService
 import com.trading.order.domain.OrderRepository
 import org.springframework.stereotype.Component
@@ -12,7 +11,6 @@ import java.time.ZoneId
 @Transactional(readOnly = true)
 class OrderLimitServiceAdapter(
     private val orderRepository: OrderRepository,
-    private val structuredLogger: StructuredLogger
 ) : OrderLimitService {
     
     companion object {
@@ -31,23 +29,9 @@ class OrderLimitServiceAdapter(
                 endOfDay = endOfDay
             )
             
-            structuredLogger.info("Daily order count retrieved",
-                mapOf(
-                    "userId" to userId,
-                    "date" to today.toString(),
-                    "count" to dailyCount.toString()
-                )
-            )
             
             dailyCount
         } catch (ex: Exception) {
-            structuredLogger.error("Failed to retrieve daily order count",
-                mapOf(
-                    "userId" to userId,
-                    "error" to (ex.message ?: "Unknown error")
-                ),
-                ex
-            )
             0L
         }
     }

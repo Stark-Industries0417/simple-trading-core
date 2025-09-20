@@ -4,16 +4,12 @@ import com.trading.common.adapter.MarketDataProvider
 import com.trading.common.dto.order.OrderSide
 import com.trading.common.dto.order.OrderType
 import com.trading.common.exception.order.OrderValidationException
-import com.trading.common.logging.StructuredLogger
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.time.LocalTime
 import java.time.ZoneId
-
-
 @Component
 class OrderValidator(
-    private val structuredLogger: StructuredLogger,
     private val marketDataProvider: MarketDataProvider,
     private val accountService: AccountService,
     private val orderLimitService: OrderLimitService
@@ -37,25 +33,10 @@ class OrderValidator(
 
     fun validateOrThrow(order: Order) {
         try {
-            structuredLogger.info("Starting business rules validation (fail-fast mode)", 
-                mapOf(
-                    "orderId" to order.id,
-                    "userId" to order.userId,
-                    "symbol" to order.symbol,
-                    "orderType" to order.orderType.name,
-                    "side" to order.side.name
-                )
-            )
-            
             validateSymbolOrThrow(order.symbol)
             validateQuantityOrThrow(order.quantity)
             validateOrderConsistencyOrThrow(order)
-            
-            validateTradingHours()?.let { warning ->
-                structuredLogger.warn("Trading hours warning", 
-                    mapOf("orderId" to order.id, "warning" to warning)
-                )
-            }
+            validateTradingHours()
             
             if (order.orderType == OrderType.LIMIT && order.price != null) {
                 validatePriceRangeOrThrow(order.symbol, order.price, marketDataProvider)
@@ -63,33 +44,10 @@ class OrderValidator(
             
             validateBalanceOrThrow(order, accountService)
             validateUserLimitsOrThrow(order.userId, orderLimitService)
-            
-            structuredLogger.info("Business rules validation passed", 
-                mapOf(
-                    "orderId" to order.id, 
-                    "userId" to order.userId,
-                    "validationMode" to "fail-fast"
-                )
-            )
-            
+
         } catch (ex: OrderValidationException) {
-            structuredLogger.warn("Business rules validation failed",
-                mapOf(
-                    "orderId" to order.id,
-                    "userId" to order.userId,
-                    "error" to (ex.message ?: "Unknown error"),
-                    "validationMode" to "fail-fast"
-                )
-            )
             throw ex
         } catch (ex: Exception) {
-            structuredLogger.error("Validation system error", 
-                mapOf(
-                    "orderId" to order.id, 
-                    "userId" to order.userId,
-                    "validationMode" to "fail-fast"
-                ), ex
-            )
             throw OrderValidationException("Validation system error: ${ex.message}", ex)
                 .withContext("orderId", order.id)
                 .withContext("userId", order.userId)
@@ -169,14 +127,6 @@ class OrderValidator(
         } catch (ex: OrderValidationException) {
             throw ex
         } catch (ex: Exception) {
-            structuredLogger.warn("Market data service error during price validation",
-                mapOf(
-                    "symbol" to symbol, 
-                    "requestedPrice" to price.toString(),
-                    "error" to (ex.message ?: "Unknown error"),
-                    "exceptionType" to ex.javaClass.simpleName
-                )
-            )
             throw OrderValidationException("Price validation failed due to market data service error", ex)
                 .withContext("symbol", symbol)
                 .withContext("requestedPrice", price.toString())
@@ -210,15 +160,6 @@ class OrderValidator(
         } catch (ex: OrderValidationException) {
             throw ex
         } catch (ex: Exception) {
-            structuredLogger.warn("Account service error during balance validation",
-                mapOf(
-                    "userId" to order.userId,
-                    "symbol" to order.symbol,
-                    "side" to order.side.name,
-                    "error" to (ex.message ?: "Unknown error"),
-                    "exceptionType" to ex.javaClass.simpleName
-                )
-            )
             throw OrderValidationException("Balance validation failed due to account service error", ex)
                 .withContext("userId", order.userId)
                 .withContext("symbol", order.symbol)
@@ -239,13 +180,6 @@ class OrderValidator(
         } catch (ex: OrderValidationException) {
             throw ex
         } catch (ex: Exception) {
-            structuredLogger.warn("Order limit service error during user limits validation",
-                mapOf(
-                    "userId" to userId,
-                    "error" to (ex.message ?: "Unknown error"),
-                    "exceptionType" to ex.javaClass.simpleName
-                )
-            )
             throw OrderValidationException("User limits validation failed due to service error", ex)
                 .withContext("userId", userId)
         }

@@ -3,9 +3,6 @@ package com.trading.order.application
 import com.trading.common.dto.order.OrderStatus
 import com.trading.common.event.saga.AccountUpdatedEvent
 import com.trading.common.event.saga.AccountUpdateFailedEvent
-import com.trading.common.event.saga.SagaTimeoutEvent
-import com.trading.common.logging.StructuredLogger
-import com.trading.common.util.UUIDv7Generator
 import com.trading.order.domain.OrderRepository
 import com.trading.order.infrastructure.outbox.OrderOutboxRepository
 import com.trading.common.outbox.OutboxStatus
@@ -27,7 +24,6 @@ class SagaEventListener(
     private val outboxRepository: OrderOutboxRepository,
     private val sagaRepository: OrderSagaRepository,
     private val objectMapper: ObjectMapper,
-    private val structuredLogger: StructuredLogger,
     @Value("\${saga.timeouts.order:30}") private val orderTimeoutSeconds: Long = 30
 ) {
     
@@ -48,23 +44,13 @@ class SagaEventListener(
                 }
             }
         } catch (e: Exception) {
-            structuredLogger.error("Error handling account event",
-                mapOf(
-                    "error" to (e.message ?: "Unknown error"),
-                    "message" to message
-                )
-            )
+            e.printStackTrace()
         }
     }
     
     private fun completeOrder(event: AccountUpdatedEvent) {
         val order = orderRepository.findById(event.orderId).orElse(null)
-        if (order == null) {
-            structuredLogger.warn("Order not found for AccountUpdated event",
-                mapOf("sagaId" to event.sagaId, "orderId" to event.orderId)
-            )
-            return
-        }
+        if (order == null) return
 
         order.status = OrderStatus.COMPLETED
         order.filledQuantity = event.quantity
@@ -84,24 +70,11 @@ class SagaEventListener(
             )
         }
         
-        structuredLogger.info("Order completed through saga",
-            mapOf(
-                "sagaId" to event.sagaId,
-                "orderId" to order.id,
-                "tradeId" to event.tradeId,
-                "amount" to event.amount.toString()
-            )
-        )
     }
     
     private fun cancelOrder(event: AccountUpdateFailedEvent) {
         val order = orderRepository.findById(event.orderId).orElse(null)
-        if (order == null) {
-            structuredLogger.warn("Order not found for AccountUpdateFailed event",
-                mapOf("sagaId" to event.sagaId, "orderId" to event.orderId)
-            )
-            return
-        }
+        if (order == null) return
 
         order.cancel(event.reason)
         orderRepository.save(order)
@@ -119,14 +92,6 @@ class SagaEventListener(
             )
         }
         
-        structuredLogger.info("Order cancelled due to account failure",
-            mapOf(
-                "sagaId" to event.sagaId,
-                "orderId" to order.id,
-                "reason" to event.reason,
-                "failureType" to event.failureType.name
-            )
-        )
     }
     
     @Scheduled(fixedDelay = 5000)
@@ -135,34 +100,17 @@ class SagaEventListener(
             states = listOf(SagaStatus.STARTED, SagaStatus.IN_PROGRESS),
             now = Instant.now()
         )
-        
+
         timedOutSagas.forEach { saga ->
             try {
                 handleSagaTimeout(saga)
             } catch (e: Exception) {
-                structuredLogger.error("Error handling saga timeout",
-                    mapOf(
-                        "sagaId" to saga.sagaId,
-                        "orderId" to saga.orderId,
-                        "error" to (e.message ?: "Unknown error")
-                    )
-                )
+                e.printStackTrace()
             }
         }
     }
     
     private fun handleSagaTimeout(saga: OrderSagaState) {
-        structuredLogger.warn("Order saga timeout detected",
-            mapOf(
-                "sagaId" to saga.sagaId,
-                "orderId" to saga.orderId,
-                "userId" to saga.userId,
-                "state" to saga.state.name,
-                "startedAt" to saga.startedAt.toString(),
-                "timeoutAt" to saga.timeoutAt.toString()
-            )
-        )
-        
         saga.markTimeout()
         sagaRepository.save(saga)
         

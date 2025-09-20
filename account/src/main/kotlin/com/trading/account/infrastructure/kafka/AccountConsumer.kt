@@ -7,7 +7,6 @@ import com.trading.account.domain.StockReservationResult
 import com.trading.common.dto.order.OrderSide
 import com.trading.common.event.order.OrderCancelledEvent
 import com.trading.common.event.order.OrderCreatedEvent
-import com.trading.common.logging.StructuredLogger
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.kafka.support.Acknowledgment
@@ -17,13 +16,10 @@ import org.springframework.messaging.handler.annotation.Payload
 import org.springframework.stereotype.Component
 
 
-
-
 @Component
 class AccountConsumer(
     private val accountService: AccountService,
     private val objectMapper: ObjectMapper,
-    private val structuredLogger: StructuredLogger
 ) {
     
     companion object {
@@ -43,8 +39,6 @@ class AccountConsumer(
         @Header(KafkaHeaders.OFFSET) offset: Long,
         acknowledgment: Acknowledgment
     ) {
-        val startTime = System.currentTimeMillis()
-        
         try {
             val jsonNode = objectMapper.readTree(message)
             
@@ -59,24 +53,14 @@ class AccountConsumer(
             
             val eventType = jsonNode.get("eventType").asText()
             
-            structuredLogger.info("Processing event from Kafka",
-                mapOf(
-                    "eventType" to eventType,
-                    "symbol" to (key ?: "N/A"),
-                    "topic" to topic,
-                    "partition" to partition.toString(),
-                    "offset" to offset.toString()
-                )
-            )
-            
             when (eventType) {
                 "OrderCreatedEvent" -> {
                     val orderEvent = objectMapper.treeToValue(jsonNode, OrderCreatedEvent::class.java)
-                    handleOrderCreated(orderEvent, startTime)
+                    handleOrderCreated(orderEvent)
                 }
                 "OrderCancelledEvent" -> {
                     val cancelEvent = objectMapper.treeToValue(jsonNode, OrderCancelledEvent::class.java)
-                    handleOrderCancelled(cancelEvent, startTime)
+                    handleOrderCancelled(cancelEvent)
                 }
                 else -> {
                     logger.warn(
@@ -104,22 +88,9 @@ class AccountConsumer(
     }
     
     private fun handleOrderCreated(
-        orderEvent: OrderCreatedEvent,
-        startTime: Long
+        orderEvent: OrderCreatedEvent
     ) {
         val order = orderEvent.order
-        
-        structuredLogger.info("Processing order created event",
-            mapOf(
-                "orderId" to order.orderId,
-                "userId" to order.userId,
-                "symbol" to order.symbol,
-                "side" to order.side.toString(),
-                "quantity" to order.quantity.toString(),
-                "price" to (order.price?.toString() ?: "MARKET"),
-                "traceId" to order.traceId
-            )
-        )
         
         val reservationSuccess = when (order.side) {
             OrderSide.BUY -> {
@@ -135,34 +106,12 @@ class AccountConsumer(
                         amount = amount,
                         traceId = order.traceId
                     )
-                    
                     when (result) {
-                        is ReservationResult.Success -> {
-                            structuredLogger.info("Funds reserved for buy order",
-                                mapOf(
-                                    "orderId" to order.orderId,
-                                    "userId" to order.userId,
-                                    "amount" to amount.toString(),
-                                    "reservationId" to result.reservationId,
-                                    "processingTimeMs" to (System.currentTimeMillis() - startTime).toString(),
-                                    "traceId" to order.traceId
-                                )
-                            )
-                            true
-                        }
-                        is ReservationResult.InsufficientFunds -> {
-                            structuredLogger.warn("Insufficient balance for buy order",
-                                mapOf(
-                                    "orderId" to order.orderId,
-                                    "userId" to order.userId,
-                                    "required" to result.required.toString(),
-                                    "available" to result.available.toString(),
-                                    "traceId" to order.traceId
-                                )
-                            )
+                        is ReservationResult.Success -> true
+
+                        is ReservationResult.InsufficientFunds ->
                             // 보상 이벤트는 Order 모듈에서 처리
                             false
-                        }
                     }
                 } else {
                     logger.warn("Market buy orders not yet supported for fund reservation")
@@ -179,33 +128,9 @@ class AccountConsumer(
                     price = order.price,
                     traceId = order.traceId
                 )
-                
                 when (result) {
-                    is StockReservationResult.Success -> {
-                        structuredLogger.info("Stocks reserved for sell order",
-                            mapOf(
-                                "orderId" to order.orderId,
-                                "userId" to order.userId,
-                                "symbol" to order.symbol,
-                                "quantity" to order.quantity.toString(),
-                                "reservationId" to result.reservationId,
-                                "processingTimeMs" to (System.currentTimeMillis() - startTime).toString(),
-                                "traceId" to order.traceId
-                            )
-                        )
-                        true
-                    }
+                    is StockReservationResult.Success -> true
                     is StockReservationResult.InsufficientShares -> {
-                        structuredLogger.warn("Insufficient shares for sell order",
-                            mapOf(
-                                "orderId" to order.orderId,
-                                "userId" to order.userId,
-                                "symbol" to order.symbol,
-                                "required" to result.required.toString(),
-                                "available" to result.available.toString(),
-                                "traceId" to order.traceId
-                            )
-                        )
                         // TODO: 보상 이벤트 발행
                         false
                     }
@@ -218,41 +143,16 @@ class AccountConsumer(
         }
     }
     private fun handleOrderCancelled(
-        cancelEvent: OrderCancelledEvent,
-        startTime: Long
+        cancelEvent: OrderCancelledEvent
     ) {
         
-        structuredLogger.info("Processing order cancelled event",
-            mapOf(
-                "orderId" to cancelEvent.orderId,
-                "userId" to cancelEvent.userId,
-                "reason" to cancelEvent.reason,
-                "traceId" to cancelEvent.traceId
-            )
-        )
         
         val releaseSuccess = accountService.releaseReservationByOrderId(
             orderId = cancelEvent.orderId,
             traceId = cancelEvent.traceId
         )
-        
-        if (releaseSuccess) {
-            structuredLogger.info("Reservation released for cancelled order",
-                mapOf(
-                    "orderId" to cancelEvent.orderId,
-                    "userId" to cancelEvent.userId,
-                    "processingTimeMs" to (System.currentTimeMillis() - startTime).toString(),
-                    "traceId" to cancelEvent.traceId
-                )
-            )
-        } else {
-            structuredLogger.warn("No reservation found for cancelled order",
-                mapOf(
-                    "orderId" to cancelEvent.orderId,
-                    "userId" to cancelEvent.userId,
-                    "traceId" to cancelEvent.traceId
-                )
-            )
+        if (!releaseSuccess) {
+            // TODO: 계좌 보상 실행
         }
     }
     

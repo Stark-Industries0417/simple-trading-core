@@ -4,10 +4,8 @@ import com.trading.common.adapter.MarketDataProvider
 import com.trading.common.dto.order.OrderSide
 import com.trading.common.dto.order.OrderType
 import com.trading.common.exception.order.OrderValidationException
-import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.UUIDv7Generator
 import io.mockk.*
-import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
@@ -22,7 +20,6 @@ import java.math.BigDecimal
 class OrderValidatorTest {
 
     private lateinit var validator: OrderValidator
-    private lateinit var structuredLogger: StructuredLogger
     private lateinit var marketDataProvider: MarketDataProvider
     private lateinit var accountService: AccountService
     private lateinit var orderLimitService: OrderLimitService
@@ -30,13 +27,12 @@ class OrderValidatorTest {
 
     @BeforeEach
     fun setUp() {
-        structuredLogger = mockk(relaxed = true)
         marketDataProvider = mockk()
         accountService = mockk()
         orderLimitService = mockk()
         uuidGenerator = mockk()
 
-        validator = OrderValidator(structuredLogger, marketDataProvider, accountService, orderLimitService)
+        validator = OrderValidator( marketDataProvider, accountService, orderLimitService)
 
         // UUID 생성기 기본 동작
         every { uuidGenerator.generateOrderId() } returns "ORDER-TEST-123"

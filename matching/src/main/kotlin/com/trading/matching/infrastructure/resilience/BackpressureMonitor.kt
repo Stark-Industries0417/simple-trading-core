@@ -29,7 +29,7 @@ class BackpressureMonitor {
         val acceptedCount: AtomicLong = AtomicLong(0),
         val lastResetTime: AtomicLong = AtomicLong(System.currentTimeMillis())
     )
-    
+
     fun shouldReject(symbol: String): Boolean {
         val metrics = queueMetrics.computeIfAbsent(symbol) { QueueMetrics() }
         
@@ -99,15 +99,7 @@ class BackpressureMonitor {
     
     private fun logRejection(symbol: String, currentSize: Int, threshold: Int) {
         if (shouldLogRejection()) {
-            logger.warn(
-                "Order rejected due to backpressure",
-                mapOf(
-                    "symbol" to symbol,
-                    "currentQueueSize" to currentSize,
-                    "threshold" to threshold,
-                    "reason" to "QUEUE_OVERFLOW"
-                )
-            )
+            logger.warn("Order rejected due to backpressure")
         }
     }
     

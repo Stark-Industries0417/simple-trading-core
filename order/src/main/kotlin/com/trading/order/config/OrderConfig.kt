@@ -1,11 +1,9 @@
 package com.trading.order.config
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.trading.common.adapter.AccountServiceProvider
 import com.trading.common.adapter.MarketDataProvider
 import com.trading.common.event.base.EventPublisher
 import com.trading.common.event.base.SpringEventPublisher
-import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.TraceIdGenerator
 import com.trading.common.util.UUIDv7Generator
 import com.trading.order.infrastructure.adapter.StubAccountServiceProvider
@@ -56,12 +54,6 @@ class OrderConfig {
     @ConditionalOnMissingBean
     fun uuidv7Generator(): UUIDv7Generator {
         return UUIDv7Generator()
-    }
-    
-    @Bean
-    @ConditionalOnMissingBean
-    fun structuredLogger(objectMapper: ObjectMapper): StructuredLogger {
-        return StructuredLogger(objectMapper)
     }
     
     @Bean

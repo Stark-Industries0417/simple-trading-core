@@ -97,12 +97,12 @@ class AccountIntegrationTest {
         
         executor.shutdown()
     }
-    
+
     @Test
     fun `Reconciliation이 의도적 불일치를 감지`() {
         val account = Account.create("user1", BigDecimal("10000"))
         accountRepository.save(account)
-        
+
         val fakeLog = TransactionLog.create(
             userId = "user1",
             tradeId = "fake-trade",
@@ -113,20 +113,20 @@ class AccountIntegrationTest {
             amount = BigDecimal("1000")
         )
         transactionLogRepository.save(fakeLog)
-        
+
         mockkObject(alertService)
-        
+
         // When
         reconciliationScheduler.validateDataConsistency()
-        
-        verify(exactly = 1) { 
+
+        verify(exactly = 1) {
             alertService.sendCriticalAlert(
                 match { it.contains("Inconsistency") },
                 match { it.contains("user1") }
             )
         }
     }
-    
+
     @Test
     fun `계좌 생성 및 초기 잔고 설정`() {
         // When
@@ -143,11 +143,15 @@ class AccountIntegrationTest {
     @Test
     fun `자금 예약 성공 시나리오`() {
         // Given
-        val account = accountService.createAccount("user1", BigDecimal("1000.00"))
-        
+        accountService.createAccount("user1", BigDecimal("1000.00"))
+
         // When
         val result = accountService.reserveFundsForOrder(
+            orderId = "order123",
             userId = "user1",
+            symbol = "AAPL",
+            quantity = BigDecimal("10"),
+            price = BigDecimal("50.00"),
             amount = BigDecimal("500.00"),
             traceId = "trace123"
         )
@@ -164,14 +168,17 @@ class AccountIntegrationTest {
     fun `자금 부족 시 예약 실패`() {
         // Given
         accountService.createAccount("user1", BigDecimal("100.00"))
-        
+
         // When
         val result = accountService.reserveFundsForOrder(
+            orderId = "order456",
             userId = "user1",
+            symbol = "AAPL",
+            quantity = BigDecimal("10"),
+            price = BigDecimal("50.00"),
             amount = BigDecimal("500.00"),
             traceId = "trace123"
         )
-        
         // Then
         assertThat(result).isInstanceOf(ReservationResult.InsufficientFunds::class.java)
         val insufficientResult = result as ReservationResult.InsufficientFunds
@@ -184,8 +191,6 @@ class AccountIntegrationTest {
         // Given
         accountService.createAccount("buyer", BigDecimal("10000.00"))
         accountService.createAccount("seller", BigDecimal("5000.00"))
-        
-        
         val trade = createTrade(
             tradeId = "trade123",
             buyUserId = "buyer",
@@ -193,7 +198,6 @@ class AccountIntegrationTest {
             price = BigDecimal("150.00"),
             quantity = BigDecimal("10")
         )
-        
         // When
         val result = accountService.processTradeExecution(trade)
         

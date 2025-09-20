@@ -9,7 +9,6 @@ import com.trading.account.infrastructure.persistence.TransactionLogRepository
 import com.trading.common.dto.order.OrderSide
 import com.trading.common.event.matching.TradeExecutedEvent
 import com.trading.common.exception.account.InsufficientBalanceException
-import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.UUIDv7Generator
 import jakarta.persistence.PessimisticLockException
 import org.springframework.stereotype.Service
@@ -24,18 +23,9 @@ class AccountService(
     private val stockHoldingRepository: StockHoldingRepository,
     private val transactionLogRepository: TransactionLogRepository,
     private val reservationInfoRepository: ReservationInfoRepository,
-    private val structuredLogger: StructuredLogger,
-    private val uuidGenerator: UUIDv7Generator
 ) {
     
     fun createAccount(userId: String, initialBalance: BigDecimal): Account {
-        structuredLogger.info("Creating account",
-            mapOf(
-                "userId" to userId,
-                "initialBalance" to initialBalance.toString()
-            )
-        )
-        
         val account = Account.create(userId, initialBalance)
         return accountRepository.save(account)
     }
@@ -93,21 +83,12 @@ class AccountService(
                 balanceBefore = sellerAccount.getCashBalance() - totalCost,
                 balanceAfter = sellerAccount.getCashBalance()
             )
-            
+
             accountRepository.saveAll(listOf(buyerAccount, sellerAccount))
             stockHoldingRepository.save(buyerHolding)
             stockHoldingRepository.save(sellerHolding)
             transactionLogRepository.saveAll(listOf(buyLog, sellLog))
-            
-            val duration = System.currentTimeMillis() - startTime
-            structuredLogger.info("Trade execution completed",
-                mapOf(
-                    "tradeId" to event.tradeId,
-                    "duration" to duration.toString(),
-                    "amount" to totalCost.toString()
-                )
-            )
-            
+
             AccountUpdateResult.Success(
                 buyerNewBalance = buyerAccount.getCashBalance(),
                 sellerNewBalance = sellerAccount.getCashBalance()
@@ -148,19 +129,7 @@ class AccountService(
                 traceId = traceId
             )
             reservationInfoRepository.save(reservationInfo)
-            
-            structuredLogger.info("Funds reserved",
-                mapOf(
-                    "orderId" to orderId,
-                    "userId" to userId,
-                    "symbol" to symbol,
-                    "amount" to amount.toString(),
-                    "reservationId" to result.reservationId,
-                    "traceId" to traceId
-                )
-            )
         }
-        
         return result
     }
     
@@ -192,47 +161,21 @@ class AccountService(
                 traceId = traceId
             )
             reservationInfoRepository.save(reservationInfo)
-            
-            structuredLogger.info("Stocks reserved",
-                mapOf(
-                    "orderId" to orderId,
-                    "userId" to userId,
-                    "symbol" to symbol,
-                    "quantity" to quantity.toString(),
-                    "reservationId" to result.reservationId,
-                    "traceId" to traceId
-                )
-            )
         }
         
         return result
     }
 
     fun releaseReservationByOrderId(orderId: String, traceId: String): Boolean {
-        val startTime = System.currentTimeMillis()
-        
         return try {
             val reservationInfo = reservationInfoRepository.findByOrderId(orderId)
             
             if (reservationInfo == null) {
-                structuredLogger.warn("No reservation info found for order",
-                    mapOf(
-                        "orderId" to orderId,
-                        "traceId" to traceId
-                    )
-                )
                 // 예약 정보가 없다는 것은 예약이 생성되지 않았거나 이미 처리됨
                 return true
             }
             
             if (!reservationInfo.isActive()) {
-                structuredLogger.info("Reservation already processed",
-                    mapOf(
-                        "orderId" to orderId,
-                        "status" to reservationInfo.status.name,
-                        "traceId" to traceId
-                    )
-                )
                 return true
             }
             
@@ -243,15 +186,6 @@ class AccountService(
                         account.releaseReservation(reservationInfo.reservedAmount)
                         accountRepository.save(account)
                         
-                        structuredLogger.info("Cash reservation released using stored info",
-                            mapOf(
-                                "orderId" to orderId,
-                                "userId" to reservationInfo.userId,
-                                "amount" to reservationInfo.reservedAmount.toString(),
-                                "duration" to (System.currentTimeMillis() - startTime).toString(),
-                                "traceId" to traceId
-                            )
-                        )
                         true
                     } else {
                         false
@@ -267,16 +201,6 @@ class AccountService(
                         holding.releaseReservation(reservationInfo.quantity)
                         stockHoldingRepository.save(holding)
                         
-                        structuredLogger.info("Stock reservation released using stored info",
-                            mapOf(
-                                "orderId" to orderId,
-                                "userId" to reservationInfo.userId,
-                                "symbol" to reservationInfo.symbol,
-                                "quantity" to reservationInfo.quantity.toString(),
-                                "duration" to (System.currentTimeMillis() - startTime).toString(),
-                                "traceId" to traceId
-                            )
-                        )
                         true
                     } else {
                         true // 주식 보유가 없으면 예약도 없었을 것
@@ -292,14 +216,6 @@ class AccountService(
             success
             
         } catch (ex: Exception) {
-            structuredLogger.error("Failed to release reservation by orderId",
-                mapOf(
-                    "orderId" to orderId,
-                    "error" to (ex.message ?: "Unknown error"),
-                    "traceId" to traceId
-                ),
-                ex
-            )
             false
         }
     }
@@ -316,18 +232,6 @@ class AccountService(
         val startTime = System.currentTimeMillis()
         
         return try {
-            structuredLogger.info("Starting trade rollback",
-                mapOf(
-                    "tradeId" to tradeId,
-                    "buyUserId" to buyUserId,
-                    "sellUserId" to sellUserId,
-                    "symbol" to symbol,
-                    "quantity" to quantity.toString(),
-                    "price" to price.toString(),
-                    "traceId" to traceId
-                )
-            )
-            
             val sortedUserIds = listOf(buyUserId, sellUserId).sorted()
             val accounts = sortedUserIds.map { userId ->
                 accountRepository.findByUserIdWithLock(userId)
@@ -351,13 +255,6 @@ class AccountService(
                 buyerHolding.rollbackPurchase(quantity, price)
                 stockHoldingRepository.save(buyerHolding)
             } else {
-                structuredLogger.warn("Buyer holding not found during rollback",
-                    mapOf(
-                        "tradeId" to tradeId,
-                        "buyUserId" to buyUserId,
-                        "symbol" to symbol
-                    )
-                )
             }
             
             val sellerHolding = stockHoldingRepository
@@ -378,7 +275,7 @@ class AccountService(
                 balanceBefore = buyerAccount.getCashBalance() - totalCost,
                 balanceAfter = buyerAccount.getCashBalance()
             )
-            
+
             val sellerRollbackLog = TransactionLog.create(
                 userId = sellUserId,
                 tradeId = "$tradeId-rollback",
@@ -390,34 +287,16 @@ class AccountService(
                 balanceBefore = sellerAccount.getCashBalance() + totalCost,
                 balanceAfter = sellerAccount.getCashBalance()
             )
-            
+
             accountRepository.saveAll(listOf(buyerAccount, sellerAccount))
             transactionLogRepository.saveAll(listOf(buyerRollbackLog, sellerRollbackLog))
-            
-            val duration = System.currentTimeMillis() - startTime
-            structuredLogger.info("Trade rollback completed",
-                mapOf(
-                    "tradeId" to tradeId,
-                    "duration" to duration.toString(),
-                    "buyerNewBalance" to buyerAccount.getCashBalance().toString(),
-                    "sellerNewBalance" to sellerAccount.getCashBalance().toString()
-                )
-            )
-            
+
             RollbackResult.Success(
                 buyerNewBalance = buyerAccount.getCashBalance(),
                 sellerNewBalance = sellerAccount.getCashBalance()
             )
             
         } catch (ex: Exception) {
-            structuredLogger.error("Trade rollback failed",
-                mapOf(
-                    "tradeId" to tradeId,
-                    "error" to (ex.message ?: "Unknown error")
-                ),
-                ex
-            )
-            
             RollbackResult.Failure(
                 reason = ex.message ?: "Rollback failed",
                 exception = ex
@@ -429,13 +308,6 @@ class AccountService(
         event: TradeExecutedEvent, 
         ex: Exception
     ): AccountUpdateResult {
-        structuredLogger.warn("Business rule violation",
-            mapOf(
-                "tradeId" to event.tradeId,
-                "reason" to (ex.message ?: "Unknown")
-            )
-        )
-        
         return AccountUpdateResult.Failure(
             reason = ex.message ?: "Business rule violation",
             shouldRetry = false
@@ -446,11 +318,6 @@ class AccountService(
         event: TradeExecutedEvent,
         ex: Exception
     ): AccountUpdateResult {
-        structuredLogger.error("Technical failure - lock timeout",
-            mapOf("tradeId" to event.tradeId),
-            ex
-        )
-        
         return AccountUpdateResult.Failure(
             reason = "Lock acquisition timeout",
             shouldRetry = true
@@ -461,10 +328,6 @@ class AccountService(
         event: TradeExecutedEvent,
         ex: Exception
     ): AccountUpdateResult {
-        structuredLogger.error("System failure",
-            mapOf("tradeId" to event.tradeId),
-            ex
-        )
         
         return AccountUpdateResult.Failure(
             reason = "System failure",

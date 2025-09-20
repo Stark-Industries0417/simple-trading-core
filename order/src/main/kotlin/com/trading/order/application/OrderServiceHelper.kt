@@ -2,14 +2,12 @@ package com.trading.order.application
 
 import com.trading.common.exception.order.OrderPersistenceException
 import com.trading.common.exception.order.OrderProcessingException
-import com.trading.common.logging.StructuredLogger
 import com.trading.order.domain.Order
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Component
 
 @Component
 class OrderServiceHelper(
-    private val structuredLogger: StructuredLogger,
     private val orderMetrics: OrderMetrics
 ) {
     
@@ -22,19 +20,6 @@ class OrderServiceHelper(
     ): Nothing {
         val duration = System.currentTimeMillis() - startTime
         orderMetrics.incrementDatabaseErrors()
-        
-        structuredLogger.error("Order persistence failed: constraint violation",
-            buildOrderContext(
-                order = order,
-                userId = userId,
-                symbol = symbol,
-                duration = duration,
-                additionalFields = mapOf(
-                    "error" to (ex.message ?: "Unknown error"),
-                    "constraintViolation" to true
-                )
-            )
-        )
         
         val exception = OrderPersistenceException("Failed to save order: constraint violation", ex)
             .withContext("userId", userId)
@@ -53,20 +38,7 @@ class OrderServiceHelper(
     ): Nothing {
         val duration = System.currentTimeMillis() - startTime
         orderMetrics.incrementUnexpectedErrors()
-        
-        structuredLogger.error("Unexpected error during $operation",
-            buildOrderContext(
-                order = order,
-                userId = userId,
-                symbol = symbol,
-                duration = duration,
-                additionalFields = mapOf(
-                    "error" to (ex.message ?: "Unknown error"),
-                    "exceptionType" to ex.javaClass.simpleName
-                )
-            )
-        )
-        
+
         val exception = OrderProcessingException("$operation failed due to unexpected error", ex)
             .withContext("userId", userId)
             .withContext("symbol", symbol)

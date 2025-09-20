@@ -3,7 +3,6 @@ package com.trading.order.infrastructure.web
 import com.trading.common.exception.account.InsufficientBalanceException
 import com.trading.common.exception.base.BusinessException
 import com.trading.common.exception.order.*
-import com.trading.common.logging.StructuredLogger
 import com.trading.order.application.OrderMetrics
 import com.trading.order.infrastructure.web.dto.ErrorResponse
 import jakarta.servlet.http.HttpServletRequest
@@ -18,7 +17,6 @@ import org.springframework.web.bind.annotation.RestControllerAdvice
 
 @RestControllerAdvice
 class OrderExceptionHandler(
-    private val structuredLogger: StructuredLogger,
     private val orderMetrics: OrderMetrics
 ) {
     
@@ -27,21 +25,10 @@ class OrderExceptionHandler(
         ex: MethodArgumentNotValidException,
         request: HttpServletRequest
     ): ResponseEntity<ErrorResponse> {
-        
         val fieldErrors = ex.bindingResult.fieldErrors.associate { error: FieldError ->
             error.field to (error.defaultMessage ?: "Invalid value")
         }
-        
         val traceId = MDC.get("traceId")
-        
-        structuredLogger.warn("Bean validation failed",
-            buildMap {
-                put("path", request.requestURI)
-                put("method", request.method)
-                put("fieldErrors", fieldErrors)
-                traceId?.let { put("traceId", it) }
-            }
-        )
         
         val errorResponse = ErrorResponse.validationError(
             message = "Request validation failed",
@@ -64,17 +51,6 @@ class OrderExceptionHandler(
         
         val violations = ex.context["validationErrors"] as? List<String> ?: emptyList()
         
-        structuredLogger.warn("Business rules validation failed",
-            buildMap {
-                put("path", request.requestURI)
-                put("method", request.method)
-                put("errorCode", ex.errorCode)
-                put("violations", violations)
-                ex.context["orderId"]?.let { put("orderId", it) }
-                traceId?.let { put("traceId", it) }
-            }
-        )
-        
         val errorResponse = ErrorResponse.businessRuleViolation(
             message = ex.message ?: "Business rule validation failed",
             path = request.requestURI,
@@ -90,18 +66,7 @@ class OrderExceptionHandler(
         ex: OrderNotFoundException,
         request: HttpServletRequest
     ): ResponseEntity<ErrorResponse> {
-        
         val traceId = MDC.get("traceId")
-        
-        structuredLogger.info("Order not found",
-            buildMap {
-                put("path", request.requestURI)
-                put("method", request.method)
-                ex.context["orderId"]?.let { put("orderId", it) }
-                ex.context["userId"]?.let { put("userId", it) }
-                traceId?.let { put("traceId", it) }
-            }
-        )
         
         val errorResponse = ErrorResponse.notFound(
             message = ex.message ?: "Order not found",
@@ -123,17 +88,6 @@ class OrderExceptionHandler(
         val traceId = MDC.get("traceId")
         val currentState = ex.context["currentStatus"] as? String
         
-        structuredLogger.warn("Invalid order state operation",
-            buildMap {
-                put("path", request.requestURI)
-                put("method", request.method)
-                ex.context["orderId"]?.let { put("orderId", it) }
-                currentState?.let { put("currentState", it) }
-                put("errorCode", ex.errorCode)
-                traceId?.let { put("traceId", it) }
-            }
-        )
-        
         val errorResponse = ErrorResponse.invalidState(
             message = ex.message ?: "Invalid order state for requested operation",
             path = request.requestURI,
@@ -153,17 +107,6 @@ class OrderExceptionHandler(
         orderMetrics.incrementDatabaseErrors()
         val traceId = MDC.get("traceId")
         
-        structuredLogger.error("Database operation failed",
-            buildMap {
-                put("path", request.requestURI)
-                put("method", request.method)
-                put("errorCode", ex.errorCode)
-                ex.context["orderId"]?.let { put("orderId", it) }
-                traceId?.let { put("traceId", it) }
-            },
-            ex
-        )
-        
         val errorResponse = ErrorResponse(
             code = "DATABASE_ERROR",
             message = "Unable to process request due to data storage issue",
@@ -181,17 +124,6 @@ class OrderExceptionHandler(
     ): ResponseEntity<ErrorResponse> {
         
         val traceId = MDC.get("traceId")
-        
-        structuredLogger.error("Order retrieval failed",
-            buildMap {
-                put("path", request.requestURI)
-                put("method", request.method)
-                put("errorCode", ex.errorCode)
-                ex.context["userId"]?.let { put("userId", it) }
-                traceId?.let { put("traceId", it) }
-            },
-            ex
-        )
         
         val errorResponse = ErrorResponse(
             code = "RETRIEVAL_ERROR",
@@ -212,17 +144,6 @@ class OrderExceptionHandler(
         orderMetrics.incrementUnexpectedErrors()
         val traceId = MDC.get("traceId")
         
-        structuredLogger.error("Order processing failed",
-            buildMap {
-                put("path", request.requestURI)
-                put("method", request.method)
-                put("errorCode", ex.errorCode)
-                put("context", ex.context)
-                traceId?.let { put("traceId", it) }
-            },
-            ex
-        )
-        
         val errorResponse = ErrorResponse(
             code = "PROCESSING_ERROR",
             message = "Order processing failed. Please try again.",
@@ -240,15 +161,6 @@ class OrderExceptionHandler(
     ): ResponseEntity<ErrorResponse> {
         
         val traceId = MDC.get("traceId")
-        
-        structuredLogger.warn("Insufficient balance for order",
-            buildMap {
-                put("path", request.requestURI)
-                put("method", request.method)
-                put("errorCode", ex.errorCode)
-                traceId?.let { put("traceId", it) }
-            }
-        )
         
         val errorResponse = ErrorResponse(
             code = "INSUFFICIENT_BALANCE",
@@ -268,16 +180,6 @@ class OrderExceptionHandler(
         
         val traceId = MDC.get("traceId")
         
-        structuredLogger.warn("Business exception occurred",
-            buildMap {
-                put("path", request.requestURI)
-                put("method", request.method)
-                put("errorCode", ex.errorCode)
-                put("context", ex.context)
-                traceId?.let { put("traceId", it) }
-            }
-        )
-        
         val errorResponse = ErrorResponse(
             code = ex.errorCode,
             message = ex.message ?: "Business rule violation",
@@ -296,16 +198,6 @@ class OrderExceptionHandler(
         
         orderMetrics.incrementUnexpectedErrors()
         val traceId = MDC.get("traceId")
-        
-        structuredLogger.error("Unexpected error in order processing",
-            buildMap {
-                put("path", request.requestURI)
-                put("method", request.method)
-                put("errorType", ex.javaClass.simpleName)
-                traceId?.let { put("traceId", it) }
-            },
-            ex
-        )
         
         val errorResponse = ErrorResponse.internalError(
             path = request.requestURI,

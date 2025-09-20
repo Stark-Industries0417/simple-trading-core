@@ -14,7 +14,6 @@ import com.trading.common.event.saga.AccountUpdateFailedEvent
 import com.trading.common.event.saga.AccountUpdatedEvent
 import com.trading.common.event.saga.TradeFailedEvent
 import com.trading.common.event.saga.TradeRollbackEvent
-import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.UUIDv7Generator
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.kafka.annotation.KafkaListener
@@ -30,7 +29,6 @@ class AccountSagaService(
     private val sagaRepository: AccountSagaRepository,
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val objectMapper: ObjectMapper,
-    private val structuredLogger: StructuredLogger,
     private val uuidGenerator: UUIDv7Generator,
     @Value("\${saga.timeouts.account:5}") private val accountTimeoutSeconds: Long = 5
 ) {
@@ -41,9 +39,6 @@ class AccountSagaService(
             val jsonNode = objectMapper.readTree(message)
             val eventType = jsonNode.get("eventType")?.asText()
             if (eventType == null) {
-                structuredLogger.warn("Unknown event format, no eventType found",
-                    mapOf("message" to message.take(200))
-                )
                 return
             }
             val sagaId = jsonNode.get("sagaId")?.asText()
@@ -51,9 +46,6 @@ class AccountSagaService(
             when (eventType) {
                 "TradeExecutedEvent" -> {
                     if (sagaId == null) {
-                        structuredLogger.error("No sagaId found in TradeExecuted event",
-                            mapOf("eventType" to eventType)
-                        )
                         return
                     }
                     val event = objectMapper.readValue(message, TradeExecutedEvent::class.java)
@@ -69,28 +61,10 @@ class AccountSagaService(
                 }
             }
         } catch (e: Exception) {
-            structuredLogger.error("Error handling trade event",
-                mapOf(
-                    "error" to (e.message ?: "Unknown error"),
-                    "message" to message
-                )
-            )
         }
     }
     
     private fun processAccountUpdate(event: TradeExecutedEvent, sagaId: String) {
-        val startTime = System.currentTimeMillis()
-        
-        structuredLogger.info("Processing TradeExecutedEvent",
-            mapOf(
-                "eventId" to event.eventId,
-                "sagaId" to sagaId,
-                "tradeId" to event.tradeId,
-                "symbol" to event.symbol,
-                "traceId" to event.traceId
-            )
-        )
-        
         val sagaState = AccountSagaState(
             sagaId = sagaId,
             tradeId = event.tradeId,
@@ -126,7 +100,6 @@ class AccountSagaService(
                         buyerNewBalance = result.buyerNewBalance,
                         sellerNewBalance = result.sellerNewBalance
                     )
-                    
                     val eventNode = objectMapper.createObjectNode()
                     eventNode.put("eventType", "AccountUpdated")
                     val updatedEventNode = objectMapper.valueToTree<ObjectNode>(updatedEvent)
@@ -136,17 +109,6 @@ class AccountSagaService(
                         "account.events",
                         event.symbol,
                         objectMapper.writeValueAsString(eventNode)
-                    )
-                    
-                    val duration = System.currentTimeMillis() - startTime
-                    structuredLogger.info("Account update completed",
-                        mapOf(
-                            "sagaId" to savedSaga.sagaId,
-                            "tradeId" to event.tradeId,
-                            "buyerNewBalance" to result.buyerNewBalance.toString(),
-                            "sellerNewBalance" to result.sellerNewBalance.toString(),
-                            "duration" to duration.toString()
-                        )
                     )
                 }
                 
@@ -194,7 +156,7 @@ class AccountSagaService(
             failureType = failureType,
             shouldRetry = result.shouldRetry
         )
-        
+
         val eventNode = objectMapper.createObjectNode()
         eventNode.put("eventType", "AccountUpdateFailed")
         eventNode.put("sagaId", saga.sagaId)
@@ -205,16 +167,6 @@ class AccountSagaService(
             "account.events",
             event.symbol,
             objectMapper.writeValueAsString(eventNode)
-        )
-        
-        structuredLogger.error("Account update failed",
-            mapOf(
-                "sagaId" to saga.sagaId,
-                "tradeId" to event.tradeId,
-                "reason" to result.reason,
-                "failureType" to failureType.name,
-                "shouldRetry" to result.shouldRetry.toString()
-            )
         )
     }
     
@@ -240,7 +192,7 @@ class AccountSagaService(
             failureType = AccountUpdateFailedEvent.FailureType.TECHNICAL_ERROR,
             shouldRetry = false
         )
-        
+
         val eventNode = objectMapper.createObjectNode()
         eventNode.put("eventType", "AccountUpdateFailed")
         eventNode.put("sagaId", saga.sagaId)
@@ -252,30 +204,13 @@ class AccountSagaService(
             event.symbol,
             objectMapper.writeValueAsString(eventNode)
         )
-        
-        structuredLogger.error("Account update exception",
-            mapOf(
-                "sagaId" to saga.sagaId,
-                "tradeId" to event.tradeId,
-                "error" to (exception.message ?: "Unknown error")
-            ),
-            exception = exception
-        )
     }
     
     private fun rollbackAccount(event: TradeRollbackEvent) {
         val saga = sagaRepository.findBySagaId(event.sagaId)
-        if (saga == null) {
-            structuredLogger.warn("No saga found for trade rollback",
-                mapOf("sagaId" to event.sagaId, "tradeId" to event.tradeId)
-            )
-            return
-        }
-        
+        if (saga == null) return
+
         if (saga.state != SagaStatus.COMPLETED) {
-            structuredLogger.info("Saga not completed, no rollback needed",
-                mapOf("sagaId" to event.sagaId, "state" to saga.state.name)
-            )
             saga.markCompensated()
             sagaRepository.save(saga)
             return
@@ -299,17 +234,6 @@ class AccountSagaService(
                     saga.markCompensated()
                     sagaRepository.save(saga)
 
-                    structuredLogger.info("Account rollback completed successfully",
-                        mapOf(
-                            "sagaId" to event.sagaId,
-                            "tradeId" to event.tradeId,
-                            "buyUserId" to originalEvent.buyUserId,
-                            "sellUserId" to originalEvent.sellUserId,
-                            "buyerNewBalance" to rollbackResult.buyerNewBalance.toString(),
-                            "sellerNewBalance" to rollbackResult.sellerNewBalance.toString()
-                        )
-                    )
-
                     AccountRollbackEvent(
                         eventId = uuidGenerator.generateEventId(),
                         aggregateId = event.tradeId,
@@ -331,16 +255,6 @@ class AccountSagaService(
                 is RollbackResult.Failure -> {
                     saga.markFailed("Rollback failed: ${rollbackResult.reason}")
                     sagaRepository.save(saga)
-
-                    structuredLogger.error("Account rollback failed",
-                        mapOf(
-                            "sagaId" to event.sagaId,
-                            "tradeId" to event.tradeId,
-                            "reason" to rollbackResult.reason,
-                            "error" to (rollbackResult.exception.message ?: "Unknown error")
-                        ),
-                        exception = rollbackResult.exception
-                    )
 
                     AccountRollbackEvent(
                         eventId = uuidGenerator.generateEventId(),
@@ -368,53 +282,15 @@ class AccountSagaService(
             )
 
         } catch (e: Exception) {
-            structuredLogger.error("Failed to rollback account",
-                mapOf(
-                    "sagaId" to event.sagaId,
-                    "tradeId" to event.tradeId,
-                    "error" to (e.message ?: "Unknown error")
-                ),
-                exception = e
-            )
-
             saga.markFailed("Rollback exception: ${e.message}")
             sagaRepository.save(saga)
         }
     }
     
     private fun handleTradeFailed(event: TradeFailedEvent) {
-        structuredLogger.info("Trade failed, releasing reservations",
-            mapOf(
-                "sagaId" to event.sagaId,
-                "orderId" to event.orderId,
-                "symbol" to event.symbol,
-                "reason" to event.reason,
-                "traceId" to event.traceId
-            )
-        )
-        
-        val releaseSuccess = accountService.releaseReservationByOrderId(
+        accountService.releaseReservationByOrderId(
             orderId = event.orderId,
             traceId = event.traceId
         )
-        
-        if (releaseSuccess) {
-            structuredLogger.info("Reservation released successfully",
-                mapOf(
-                    "sagaId" to event.sagaId,
-                    "orderId" to event.orderId,
-                    "traceId" to event.traceId
-                )
-            )
-        } else {
-            structuredLogger.warn("Failed to release reservation",
-                mapOf(
-                    "sagaId" to event.sagaId,
-                    "orderId" to event.orderId,
-                    "reason" to event.reason,
-                    "traceId" to event.traceId
-                )
-            )
-        }
     }
 }

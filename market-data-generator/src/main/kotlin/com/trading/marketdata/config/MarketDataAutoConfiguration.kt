@@ -1,13 +1,10 @@
 package com.trading.marketdata.config
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.trading.common.event.base.EventPublisher
 import com.trading.common.event.base.SpringEventPublisher
-import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.TraceIdGenerator
 import com.trading.common.util.UUIDv7Generator
 import com.trading.marketdata.generator.MarketDataGenerator
-import com.trading.marketdata.service.MarketDataEventListener
 import org.springframework.boot.actuate.health.HealthIndicator
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -70,13 +67,7 @@ class MarketDataAutoConfiguration {
     fun traceIdGenerator(): TraceIdGenerator {
         return TraceIdGenerator()
     }
-    
-    @Bean
-    @ConditionalOnMissingBean
-    fun structuredLogger(objectMapper: ObjectMapper): StructuredLogger {
-        return StructuredLogger(objectMapper)
-    }
-    
+
     @Bean
     @ConditionalOnMissingBean
     fun eventPublisher(

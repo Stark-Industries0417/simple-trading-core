@@ -1,7 +1,6 @@
 package com.trading.account.config
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.trading.common.logging.StructuredLogger
 import com.trading.common.util.TraceIdGenerator
 import com.trading.common.util.UUIDv7Generator
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
@@ -36,12 +35,6 @@ class AccountConfig {
     @ConditionalOnMissingBean
     fun traceIdGenerator(): TraceIdGenerator {
         return TraceIdGenerator()
-    }
-    
-    @Bean
-    @ConditionalOnMissingBean
-    fun structuredLogger(objectMapper: ObjectMapper): StructuredLogger {
-        return StructuredLogger(objectMapper)
     }
 }
 
