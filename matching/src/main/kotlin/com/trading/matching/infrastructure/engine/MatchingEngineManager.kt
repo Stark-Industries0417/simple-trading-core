@@ -1,6 +1,6 @@
 package com.trading.matching.infrastructure.engine
 
-import com.trading.common.dto.order.OrderDTO
+import com.trading.common.dto.cdc.order.OrderCreatedDto
 import org.slf4j.LoggerFactory
 import com.trading.matching.domain.Trade
 import com.trading.matching.infrastructure.resilience.BackpressureMonitor
@@ -58,7 +58,7 @@ class MatchingEngineManager(
     }
     
     @JvmOverloads
-    fun submitOrder(order: OrderDTO, traceId: String = ""): Boolean {
+    fun submitOrder(order: OrderCreatedDto): Boolean {
         val startTime = System.nanoTime()
         val workerIndex = order.symbol.hashCode().absoluteValue % threadPoolSize
         val worker = workers[workerIndex]
@@ -73,14 +73,13 @@ class MatchingEngineManager(
                     "symbol" to order.symbol,
                     "workerId" to workerIndex,
                     "reason" to "BACKPRESSURE",
-                    "traceId" to traceId
                 )
             )
             // Order rejected event handling removed - handled at Kafka layer
             return false
         }
         
-        val submitted = worker.submitOrder(order, traceId)
+        val submitted = worker.submitOrder(order)
         
         if (!submitted) {
             logger.warn(
@@ -90,7 +89,6 @@ class MatchingEngineManager(
                     "symbol" to order.symbol,
                     "workerId" to workerIndex,
                     "reason" to "QUEUE_FULL",
-                    "traceId" to traceId
                 )
             )
             // Order rejected event handling removed - handled at Kafka layer
@@ -105,7 +103,6 @@ class MatchingEngineManager(
                     "orderId" to order.orderId,
                     "symbol" to order.symbol,
                     "latencyMs" to (latencyNanos / 1_000_000).toString(),
-                    "traceId" to traceId
                 )
             )
         }
@@ -129,7 +126,7 @@ class MatchingEngineManager(
         )
     }
     
-    fun processOrderWithResult(order: OrderDTO, traceId: String = ""): List<Trade> {
+    fun processOrderWithResult(order: OrderCreatedDto): List<Trade> {
         val startTime = System.nanoTime()
         val workerIndex = order.symbol.hashCode().absoluteValue % threadPoolSize
         val worker = workers[workerIndex]
@@ -144,14 +141,12 @@ class MatchingEngineManager(
                     "symbol" to order.symbol,
                     "workerId" to workerIndex,
                     "reason" to "BACKPRESSURE",
-                    "traceId" to traceId
                 )
             )
-            // Order rejected event handling removed - handled at Kafka layer
             return emptyList()
         }
         
-        val submitted = worker.submitOrder(order, traceId)
+        val submitted = worker.submitOrder(order)
         
         if (!submitted) {
             logger.warn(
@@ -161,7 +156,6 @@ class MatchingEngineManager(
                     "symbol" to order.symbol,
                     "workerId" to workerIndex,
                     "reason" to "QUEUE_FULL",
-                    "traceId" to traceId
                 )
             )
             // Order rejected event handling removed - handled at Kafka layer
@@ -195,7 +189,6 @@ class MatchingEngineManager(
                     "symbol" to order.symbol,
                     "latencyMs" to (latencyNanos / 1_000_000).toString(),
                     "tradesGenerated" to trades.size,
-                    "traceId" to traceId
                 )
             )
         }
@@ -203,8 +196,7 @@ class MatchingEngineManager(
         return trades
     }
     
-    fun removeOrderFromBook(orderId: String, symbol: String, traceId: String = ""): Boolean {
-        val startTime = System.nanoTime()
+    fun removeOrderFromBook(orderId: String, symbol: String): Boolean {
         val workerIndex = symbol.hashCode().absoluteValue % threadPoolSize
         val worker = workers[workerIndex]
         
@@ -214,47 +206,10 @@ class MatchingEngineManager(
                 "orderId" to orderId,
                 "symbol" to symbol,
                 "workerId" to workerIndex,
-                "traceId" to traceId
             )
         )
         
-        val cancelled = worker.cancelOrder(orderId, symbol, traceId)
-        
-        val latencyNanos = System.nanoTime() - startTime
-        if (latencyNanos > 10_000_000) {
-            logger.debug(
-                "Order cancellation latency",
-                mapOf(
-                    "orderId" to orderId,
-                    "symbol" to symbol,
-                    "latencyMs" to (latencyNanos / 1_000_000).toString(),
-                    "cancelled" to cancelled,
-                    "traceId" to traceId
-                )
-            )
-        }
-        
-        if (cancelled) {
-            logger.info(
-                "Order cancelled successfully",
-                mapOf(
-                    "orderId" to orderId,
-                    "symbol" to symbol,
-                    "traceId" to traceId
-                )
-            )
-        } else {
-            logger.warn(
-                "Order cancellation failed",
-                mapOf(
-                    "orderId" to orderId,
-                    "symbol" to symbol,
-                    "traceId" to traceId,
-                    "reason" to "Order not found or already executed"
-                )
-            )
-        }
-        
+        val cancelled = worker.cancelOrder(orderId, symbol)
         return cancelled
     }
     

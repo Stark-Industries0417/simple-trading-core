@@ -1,6 +1,6 @@
 package com.trading.matching.infrastructure.engine
 
-import com.trading.common.dto.order.OrderDTO
+import com.trading.common.dto.cdc.order.OrderCreatedDto
 import com.trading.common.dto.order.OrderType
 import org.slf4j.LoggerFactory
 import com.trading.matching.domain.OrderBook
@@ -22,7 +22,7 @@ class MatchingWorker(
         private val logger = LoggerFactory.getLogger(MatchingWorker::class.java)
     }
     
-    private val orderQueue = LinkedBlockingQueue<OrderWithContext>(100_000)
+    private val orderQueue = LinkedBlockingQueue<OrderCreatedDto>(100_000)
     private val removeQueue = LinkedBlockingQueue<CancelRequest>(10_000)
     private val orderBooks = ConcurrentHashMap<String, OrderBook>()
     
@@ -46,7 +46,7 @@ class MatchingWorker(
     
     fun cancelOrder(orderId: String, symbol: String, traceId: String = ""): Boolean {
         return try {
-            val request = CancelRequest(orderId, symbol, traceId)
+            val request = CancelRequest(orderId, symbol)
             val offered = removeQueue.offer(request)
             
             if (!offered) {
@@ -79,11 +79,10 @@ class MatchingWorker(
         }
     }
     
-    fun submitOrder(order: OrderDTO, traceId: String = ""): Boolean {
+    fun submitOrder(order: OrderCreatedDto): Boolean {
         return try {
             circuitBreaker.execute {
-                val orderWithContext = OrderWithContext(order, traceId)
-                val offered = orderQueue.offer(orderWithContext)
+                val offered = orderQueue.offer(order)
                 
                 if (!offered) {
                     ordersRejected.incrementAndGet()
@@ -150,11 +149,10 @@ class MatchingWorker(
     }
     
     private fun processNextBatch() {
-        // Process cancellations first (higher priority)
         processCancellations()
         
         // Then process orders
-        val batch = mutableListOf<OrderWithContext>()
+        val batch = mutableListOf<OrderCreatedDto>()
         val maxBatchSize = 100
         val timeout = 10L
         
@@ -169,7 +167,7 @@ class MatchingWorker(
             return
         }
         
-        val ordersBySymbol = batch.groupBy { it.order.symbol }
+        val ordersBySymbol = batch.groupBy { it.symbol }
         
         ordersBySymbol.forEach { (symbol, orders) ->
             val orderBook = orderBooks.computeIfAbsent(symbol) { OrderBook(symbol) }
@@ -195,7 +193,6 @@ class MatchingWorker(
                             "workerId" to id,
                             "orderId" to request.orderId,
                             "symbol" to request.symbol,
-                            "traceId" to request.traceId
                         )
                     )
                 } else {
@@ -205,7 +202,6 @@ class MatchingWorker(
                             "workerId" to id,
                             "orderId" to request.orderId,
                             "symbol" to request.symbol,
-                            "traceId" to request.traceId
                         )
                     )
                 }
@@ -213,11 +209,7 @@ class MatchingWorker(
         }
     }
     
-    private fun processOrderInternal(orderBook: OrderBook, orderWithContext: OrderWithContext) {
-        val startTime = System.nanoTime()
-        val order = orderWithContext.order
-        val traceId = orderWithContext.traceId
-        
+    private fun processOrderInternal(orderBook: OrderBook, order: OrderCreatedDto) {
         try {
             logger.debug(
                 "Processing order",
@@ -225,11 +217,10 @@ class MatchingWorker(
                     "workerId" to id,
                     "orderId" to order.orderId,
                     "symbol" to order.symbol,
-                    "side" to order.side.name,
-                    "orderType" to order.orderType.name,
+                    "side" to order.side,
+                    "orderType" to order.orderType,
                     "quantity" to order.quantity.toString(),
                     "price" to order.price?.toString(),
-                    "traceId" to traceId
                 )
             )
             
@@ -248,39 +239,12 @@ class MatchingWorker(
                 }
             }
             
-            // Store trades for retrieval
             if (trades.isNotEmpty()) {
-                recentTrades.computeIfAbsent(order.orderId) { mutableListOf() }.addAll(trades)
+                recentTrades
+                    .computeIfAbsent(order.orderId) { mutableListOf() }.addAll(trades)
             }
-            
-            // Trade events are published by TransactionalMatchingProcessor
             tradesExecuted.addAndGet(trades.size.toLong())
-            
-            if (order.quantity > BigDecimal.ZERO && order.orderType == OrderType.LIMIT) {
-                logger.debug(
-                    "Order partially filled",
-                    mapOf(
-                        "orderId" to order.orderId,
-                        "remainingQuantity" to order.quantity.toString()
-                    )
-                )
-            }
-            
             ordersProcessed.incrementAndGet()
-            
-            val latencyNanos = System.nanoTime() - startTime
-            if (latencyNanos > 50_000_000) {
-
-                logger.warn(
-                    "High order processing latency",
-                    mapOf(
-                        "workerId" to id,
-                        "orderId" to order.orderId,
-                        "latencyMs" to (latencyNanos / 1_000_000).toString()
-                    )
-                )
-            }
-            
         } catch (e: Exception) {
             logger.error(
                 "Error processing order",
@@ -290,7 +254,6 @@ class MatchingWorker(
                     "symbol" to order.symbol,
                     "error" to e.message,
                     "errorType" to e.javaClass.simpleName,
-                    "traceId" to traceId
                 )
             )
         }
@@ -333,14 +296,8 @@ class MatchingWorker(
         "circuitBreakerState" to circuitBreaker.getState()
     )
     
-    private data class OrderWithContext(
-        val order: OrderDTO,
-        val traceId: String
-    )
-    
     private data class CancelRequest(
         val orderId: String,
         val symbol: String,
-        val traceId: String
     )
 }

@@ -1,6 +1,6 @@
 package com.trading.matching.domain
 
-import com.trading.common.dto.order.OrderDTO
+import com.trading.common.dto.cdc.order.OrderCreatedDto
 import com.trading.common.dto.order.OrderSide
 import java.math.BigDecimal
 import java.util.*
@@ -11,11 +11,11 @@ import kotlin.collections.get
 class OrderBook(
     val symbol: String
 ) {
-    private val buyOrders = TreeMap<BigDecimal, Queue<OrderDTO>>(reverseOrder())
-    private val sellOrders = TreeMap<BigDecimal, Queue<OrderDTO>>()
-    private val orderMap = ConcurrentHashMap<String, OrderDTO>()
+    private val buyOrders = TreeMap<BigDecimal, Queue<OrderCreatedDto>>(reverseOrder())
+    private val sellOrders = TreeMap<BigDecimal, Queue<OrderCreatedDto>>()
+    private val orderMap = ConcurrentHashMap<String, OrderCreatedDto>()
     
-    fun processMarketOrder(order: OrderDTO): List<Trade> {
+    fun processMarketOrder(order: OrderCreatedDto): List<Trade> {
         val trades = mutableListOf<Trade>()
         var remainingQuantity = order.quantity
         
@@ -64,7 +64,7 @@ class OrderBook(
         return trades
     }
     
-    fun processLimitOrder(order: OrderDTO): List<Trade> {
+    fun processLimitOrder(order: OrderCreatedDto): List<Trade> {
         val trades = mutableListOf<Trade>()
         var remainingQuantity = order.quantity
         
@@ -132,7 +132,7 @@ class OrderBook(
         return true
     }
     
-    private fun canMatch(order: OrderDTO, oppositeBook: TreeMap<BigDecimal, Queue<OrderDTO>>): Boolean {
+    private fun canMatch(order: OrderCreatedDto, oppositeBook: TreeMap<BigDecimal, Queue<OrderCreatedDto>>): Boolean {
         if (oppositeBook.isEmpty()) return false
         
         val bestPrice = oppositeBook.firstKey()
@@ -143,7 +143,7 @@ class OrderBook(
         }
     }
     
-    private fun addToOrderBook(order: OrderDTO, book: TreeMap<BigDecimal, Queue<OrderDTO>>) {
+    private fun addToOrderBook(order: OrderCreatedDto, book: TreeMap<BigDecimal, Queue<OrderCreatedDto>>) {
         val ordersAtPrice = book.computeIfAbsent(order.price!!) { LinkedList() }
         ordersAtPrice.offer(order.copy())
         orderMap[order.orderId] = order
