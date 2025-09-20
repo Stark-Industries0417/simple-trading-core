@@ -1,296 +1,222 @@
 package com.trading.account.infrastructure.saga
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.trading.account.application.AccountService
 import com.trading.account.application.AccountUpdateResult
 import com.trading.account.application.RollbackResult
-import com.trading.account.domain.saga.AccountSagaRepository
-import com.trading.account.domain.saga.AccountSagaState
-import com.trading.common.domain.saga.SagaStatus
-import com.trading.common.event.matching.TradeExecutedEvent
-import com.trading.common.event.saga.AccountRollbackEvent
-import com.trading.common.event.saga.AccountUpdateFailedEvent
-import com.trading.common.event.saga.AccountUpdatedEvent
-import com.trading.common.event.saga.TradeFailedEvent
-import com.trading.common.event.saga.TradeRollbackEvent
-import com.trading.common.util.UUIDv7Generator
-import org.springframework.beans.factory.annotation.Value
+import com.trading.account.infrastructure.outbox.AccountOutboxEvent
+import com.trading.account.infrastructure.outbox.AccountOutboxRepository
+import com.trading.common.dto.cdc.matching.MatchingCreatedDto
+import com.trading.common.outbox.EventTypes
 import org.springframework.kafka.annotation.KafkaListener
-import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.time.Instant
 
 @Service
 @Transactional
 class AccountSagaService(
     private val accountService: AccountService,
-    private val sagaRepository: AccountSagaRepository,
-    private val kafkaTemplate: KafkaTemplate<String, String>,
-    private val objectMapper: ObjectMapper,
-    private val uuidGenerator: UUIDv7Generator,
-    @Value("\${saga.timeouts.account:5}") private val accountTimeoutSeconds: Long = 5
+    private val accountOutboxRepository: AccountOutboxRepository,
+    private val objectMapper: ObjectMapper
 ) {
-    
+
     @KafkaListener(topics = ["trade.events"], groupId = "account-saga-group")
     fun handleTradeEvent(message: String) {
         try {
             val jsonNode = objectMapper.readTree(message)
             val eventType = jsonNode.get("eventType")?.asText()
-            if (eventType == null) {
-                return
-            }
+            if (eventType == null) return
             val sagaId = jsonNode.get("sagaId")?.asText()
-            
+
             when (eventType) {
-                "TradeExecutedEvent" -> {
-                    if (sagaId == null) {
-                        return
-                    }
-                    val event = objectMapper.readValue(message, TradeExecutedEvent::class.java)
-                    processAccountUpdate(event, sagaId)
+                EventTypes.Trade.CREATED -> {
+                    if (sagaId == null) return
+                    val event = objectMapper.readValue(message, MatchingCreatedDto::class.java)
+                    processAccountUpdate(event)
                 }
-                "TradeRollbackEvent" -> {
-                    val event = objectMapper.readValue(message, TradeRollbackEvent::class.java)
+                EventTypes.Trade.ROLLBACK -> {
+                    val event = objectMapper.readValue(message, MatchingCreatedDto::class.java)
                     rollbackAccount(event)
                 }
-                "TradeFailedEvent" -> {
-                    val event = objectMapper.readValue(message, TradeFailedEvent::class.java)
+                EventTypes.Trade.FAILED -> {
+                    val event = objectMapper.readValue(message, MatchingCreatedDto::class.java)
                     handleTradeFailed(event)
                 }
             }
         } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
-    
-    private fun processAccountUpdate(event: TradeExecutedEvent, sagaId: String) {
-        val sagaState = AccountSagaState(
-            sagaId = sagaId,
-            tradeId = event.tradeId,
-            orderId = event.buyOrderId,
-            state = SagaStatus.IN_PROGRESS,
-            timeoutAt = Instant.now().plusSeconds(accountTimeoutSeconds),
-            eventType = "TradeExecutedEvent",
-            eventPayload = objectMapper.writeValueAsString(event)
-        )
-        val savedSaga = sagaRepository.save(sagaState)
-        
+
+    private fun processAccountUpdate(event: MatchingCreatedDto) {
         try {
             val result = accountService.processTradeExecution(event)
-            
+
             when (result) {
                 is AccountUpdateResult.Success -> {
-                    savedSaga.markCompleted()
-                    sagaRepository.save(savedSaga)
-                    
-                    val updatedEvent = AccountUpdatedEvent(
-                        eventId = uuidGenerator.generateEventId(),
-                        aggregateId = event.tradeId,
-                        occurredAt = Instant.now(),
-                        traceId = event.traceId,
-                        sagaId = savedSaga.sagaId,
+                    val outboxEvent = AccountOutboxEvent.createAccountUpdatedEvent(
+                        sagaId = event.sagaId,
                         tradeId = event.tradeId,
                         orderId = event.buyOrderId,
                         buyUserId = event.buyUserId,
                         sellUserId = event.sellUserId,
+                        symbol = event.symbol,
                         amount = event.price * event.quantity,
                         quantity = event.quantity,
-                        symbol = event.symbol,
                         buyerNewBalance = result.buyerNewBalance,
                         sellerNewBalance = result.sellerNewBalance
                     )
-                    val eventNode = objectMapper.createObjectNode()
-                    eventNode.put("eventType", "AccountUpdated")
-                    val updatedEventNode = objectMapper.valueToTree<ObjectNode>(updatedEvent)
-                    eventNode.setAll<ObjectNode>(updatedEventNode)
-                    
-                    kafkaTemplate.send(
-                        "account.events",
-                        event.symbol,
-                        objectMapper.writeValueAsString(eventNode)
-                    )
+                    accountOutboxRepository.save(outboxEvent)
                 }
-                
+
                 is AccountUpdateResult.Failure -> {
-                    handleAccountUpdateFailure(savedSaga, event, result)
+                    handleAccountUpdateFailure(event, result)
                 }
             }
-            
+
         } catch (e: Exception) {
-            handleAccountUpdateException(savedSaga, event, e)
+            handleAccountUpdateException(event, e)
         }
     }
-    
+
     private fun handleAccountUpdateFailure(
-        saga: AccountSagaState,
-        event: TradeExecutedEvent,
+        event: MatchingCreatedDto,
         result: AccountUpdateResult.Failure
     ) {
-        saga.markFailed(result.reason)
-        sagaRepository.save(saga)
-        
-        val failureType = when {
-            result.reason.contains("Insufficient balance", ignoreCase = true) -> 
-                AccountUpdateFailedEvent.FailureType.INSUFFICIENT_BALANCE
-            result.reason.contains("Insufficient shares", ignoreCase = true) -> 
-                AccountUpdateFailedEvent.FailureType.INSUFFICIENT_SHARES
-            result.reason.contains("Lock", ignoreCase = true) -> 
-                AccountUpdateFailedEvent.FailureType.LOCK_TIMEOUT
-            result.reason.contains("Validation", ignoreCase = true) -> 
-                AccountUpdateFailedEvent.FailureType.VALIDATION_ERROR
-            else -> 
-                AccountUpdateFailedEvent.FailureType.TECHNICAL_ERROR
+        try {
+            accountService.releaseReservationByOrderId(event.buyOrderId)
+            accountService.releaseReservationByOrderId(event.sellOrderId)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-        val failedEvent = AccountUpdateFailedEvent(
-            eventId = uuidGenerator.generateEventId(),
-            aggregateId = event.tradeId,
-            occurredAt = Instant.now(),
-            traceId = event.traceId,
-            sagaId = saga.sagaId,
+
+        val failureType = when {
+            result.reason.contains("Insufficient balance", ignoreCase = true) ->
+                "INSUFFICIENT_BALANCE"
+            result.reason.contains("Insufficient shares", ignoreCase = true) ->
+                "INSUFFICIENT_SHARES"
+            result.reason.contains("Lock", ignoreCase = true) ->
+                "LOCK_TIMEOUT"
+            result.reason.contains("Validation", ignoreCase = true) ->
+                "VALIDATION_ERROR"
+            else ->
+                "TECHNICAL_ERROR"
+        }
+
+        val outboxEvent = AccountOutboxEvent.createAccountUpdateFailedEvent(
+            sagaId = event.sagaId,
             tradeId = event.tradeId,
             orderId = event.buyOrderId,
             buyUserId = event.buyUserId,
             sellUserId = event.sellUserId,
+            symbol = event.symbol,
+            amount = event.price * event.quantity,
+            quantity = event.quantity,
             reason = result.reason,
             failureType = failureType,
             shouldRetry = result.shouldRetry
         )
-
-        val eventNode = objectMapper.createObjectNode()
-        eventNode.put("eventType", "AccountUpdateFailed")
-        eventNode.put("sagaId", saga.sagaId)
-        val failedEventNode = objectMapper.valueToTree<ObjectNode>(failedEvent)
-        eventNode.setAll<ObjectNode>(failedEventNode)
-        
-        kafkaTemplate.send(
-            "account.events",
-            event.symbol,
-            objectMapper.writeValueAsString(eventNode)
-        )
+        accountOutboxRepository.save(outboxEvent)
     }
-    
+
     private fun handleAccountUpdateException(
-        saga: AccountSagaState,
-        event: TradeExecutedEvent,
+        event: MatchingCreatedDto,
         exception: Exception
     ) {
-        saga.markFailed(exception.message)
-        sagaRepository.save(saga)
-        
-        val failedEvent = AccountUpdateFailedEvent(
-            eventId = uuidGenerator.generateEventId(),
-            aggregateId = event.tradeId,
-            occurredAt = Instant.now(),
-            traceId = event.traceId,
-            sagaId = saga.sagaId,
+        try {
+            accountService.releaseReservationByOrderId(event.buyOrderId)
+            accountService.releaseReservationByOrderId(event.sellOrderId)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        val outboxEvent = AccountOutboxEvent.createAccountUpdateFailedEvent(
+            sagaId = event.sagaId,
             tradeId = event.tradeId,
             orderId = event.buyOrderId,
             buyUserId = event.buyUserId,
             sellUserId = event.sellUserId,
+            symbol = event.symbol,
+            amount = event.price * event.quantity,
+            quantity = event.quantity,
             reason = exception.message ?: "Account update failed",
-            failureType = AccountUpdateFailedEvent.FailureType.TECHNICAL_ERROR,
+            failureType = "TECHNICAL_ERROR",
             shouldRetry = false
         )
-
-        val eventNode = objectMapper.createObjectNode()
-        eventNode.put("eventType", "AccountUpdateFailed")
-        eventNode.put("sagaId", saga.sagaId)
-        val failedEventNode = objectMapper.valueToTree<ObjectNode>(failedEvent)
-        eventNode.setAll<ObjectNode>(failedEventNode)
-        
-        kafkaTemplate.send(
-            "account.events",
-            event.symbol,
-            objectMapper.writeValueAsString(eventNode)
-        )
+        accountOutboxRepository.save(outboxEvent)
     }
-    
-    private fun rollbackAccount(event: TradeRollbackEvent) {
-        val saga = sagaRepository.findBySagaId(event.sagaId)
-        if (saga == null) return
 
-        if (saga.state != SagaStatus.COMPLETED) {
-            saga.markCompensated()
-            sagaRepository.save(saga)
-            return
-        }
-        
+    private fun rollbackAccount(event: MatchingCreatedDto) {
         try {
-            val originalEvent = objectMapper.readValue(saga.eventPayload, TradeExecutedEvent::class.java)
-            
             val rollbackResult = accountService.rollbackTradeExecution(
                 tradeId = event.tradeId,
-                buyUserId = originalEvent.buyUserId,
-                sellUserId = originalEvent.sellUserId,
-                symbol = originalEvent.symbol,
-                quantity = originalEvent.quantity,
-                price = originalEvent.price,
-                traceId = event.traceId
+                buyUserId = event.buyUserId,
+                sellUserId = event.sellUserId,
+                symbol = event.symbol,
+                quantity = event.quantity,
+                price = event.price
             )
 
-            val rollbackEvent = when (rollbackResult) {
+            when (rollbackResult) {
                 is RollbackResult.Success -> {
-                    saga.markCompensated()
-                    sagaRepository.save(saga)
-
-                    AccountRollbackEvent(
-                        eventId = uuidGenerator.generateEventId(),
-                        aggregateId = event.tradeId,
-                        occurredAt = Instant.now(),
-                        traceId = event.traceId,
+                    val outboxEvent = AccountOutboxEvent.createAccountRollbackEvent(
                         sagaId = event.sagaId,
                         tradeId = event.tradeId,
-                        orderId = event.orderId,
-                        userId = originalEvent.buyUserId,
-                        rollbackType = AccountRollbackEvent.RollbackType.REVERSE_TRADE,
-                        amount = originalEvent.price * originalEvent.quantity,
-                        quantity = originalEvent.quantity,
-                        symbol = originalEvent.symbol,
+                        orderId = event.buyOrderId,
+                        userId = event.buyUserId,
+                        symbol = event.symbol,
+                        amount = event.price * event.quantity,
+                        quantity = event.quantity,
+                        rollbackType = "REVERSE_TRADE",
                         success = true,
                         reason = "Trade rollback completed successfully"
                     )
+                    accountOutboxRepository.save(outboxEvent)
                 }
 
                 is RollbackResult.Failure -> {
-                    saga.markFailed("Rollback failed: ${rollbackResult.reason}")
-                    sagaRepository.save(saga)
-
-                    AccountRollbackEvent(
-                        eventId = uuidGenerator.generateEventId(),
-                        aggregateId = event.tradeId,
-                        occurredAt = Instant.now(),
-                        traceId = event.traceId,
+                    val outboxEvent = AccountOutboxEvent.createAccountRollbackEvent(
                         sagaId = event.sagaId,
                         tradeId = event.tradeId,
-                        orderId = event.orderId,
-                        userId = originalEvent.buyUserId,
-                        rollbackType = AccountRollbackEvent.RollbackType.REVERSE_TRADE,
-                        amount = originalEvent.price * originalEvent.quantity,
-                        quantity = originalEvent.quantity,
-                        symbol = originalEvent.symbol,
+                        orderId = event.buyOrderId,
+                        userId = event.buyUserId,
+                        symbol = event.symbol,
+                        amount = event.price * event.quantity,
+                        quantity = event.quantity,
+                        rollbackType = "REVERSE_TRADE",
                         success = false,
                         reason = "Rollback failed: ${rollbackResult.reason}"
                     )
+                    accountOutboxRepository.save(outboxEvent)
                 }
             }
 
-            kafkaTemplate.send(
-                "account.events",
-                originalEvent.symbol,
-                objectMapper.writeValueAsString(rollbackEvent)
-            )
-
         } catch (e: Exception) {
-            saga.markFailed("Rollback exception: ${e.message}")
-            sagaRepository.save(saga)
+            e.printStackTrace()
         }
     }
-    
-    private fun handleTradeFailed(event: TradeFailedEvent) {
-        accountService.releaseReservationByOrderId(
-            orderId = event.orderId,
-            traceId = event.traceId
+
+    private fun handleTradeFailed(event: MatchingCreatedDto) {
+        try {
+            accountService.releaseReservationByOrderId(event.buyOrderId)
+            accountService.releaseReservationByOrderId(event.sellOrderId)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        val outboxEvent = AccountOutboxEvent.createAccountUpdateFailedEvent(
+            sagaId = event.sagaId,
+            tradeId = event.tradeId,
+            orderId = event.buyOrderId,
+            buyUserId = event.buyUserId,
+            sellUserId = event.sellUserId,
+            symbol = event.symbol,
+            amount = event.price * event.quantity,
+            quantity = event.quantity,
+            reason = "Matching failed",
+            failureType = "MATCHING_FAILED",
+            shouldRetry = false
         )
+        accountOutboxRepository.save(outboxEvent)
     }
 }
