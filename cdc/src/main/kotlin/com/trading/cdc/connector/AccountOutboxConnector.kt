@@ -1,7 +1,7 @@
 package com.trading.cdc.connector
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.trading.common.dto.cdc.matching.MatchingCreatedDto
+import com.trading.common.dto.cdc.account.AccountCreatedDto
 import com.trading.common.outbox.EventTypes
 import org.apache.kafka.connect.data.Struct
 import org.slf4j.LoggerFactory
@@ -9,9 +9,8 @@ import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 
-
 @Component
-class MatchingOutboxConnector(
+class AccountOutboxConnector(
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val objectMapper: ObjectMapper,
 ) : CdcConnector {
@@ -23,7 +22,7 @@ class MatchingOutboxConnector(
             val operation = extractOperation(record)
 
             when (operation) {
-                "c"-> {
+                "c" -> {
                     val after = record.getStruct("after")
                     val eventType = after.getString("event_type")
 
@@ -34,57 +33,77 @@ class MatchingOutboxConnector(
                     }
 
                     when (eventType) {
-                        EventTypes.Trade.CREATED -> processTradeCreatedEvent(after)
-                        EventTypes.Trade.FAILED -> processTradeFailedEvent(after)
+                        EventTypes.Account.UPDATED -> processAccountUpdatedEvent(after)
+                        EventTypes.Account.UPDATE_FAILED -> processAccountUpdateFailedEvent(after)
+                        EventTypes.Account.ROLLBACK -> processAccountRollbackEvent(after)
                         else -> logger.warn("Unknown event type: $eventType")
                     }
                 }
                 "d" -> {
-                    logger.debug("Delete operation ignored for matching outbox")
+                    logger.debug("Delete operation ignored for account outbox")
                 }
                 else -> {
                     logger.warn("Unknown operation: $operation")
                 }
             }
         } catch (e: Exception) {
-            logger.error("Failed to process matching outbox event", e)
+            logger.error("Failed to process account outbox event", e)
             throw e
         }
     }
 
-    private fun processTradeCreatedEvent(record: Struct) {
-        val event = mapToMatchingCreatedDto(record)
+    private fun processAccountUpdatedEvent(record: Struct) {
+        val event = mapToAccountCreatedDto(record)
 
         logger.info(
-            "Publishing trade created event - TradeId: {}, Symbol: {}, Quantity: {}, Price: {}",
+            "Publishing account updated event - TradeId: {}, BuyUser: {}, SellUser: {}, Symbol: {}, Amount: {}",
             event.tradeId,
+            event.buyUserId,
+            event.sellUserId,
             event.symbol,
-            event.quantity,
-            event.price
+            event.amount
         )
 
         val message = objectMapper.writeValueAsString(event)
         val partitionKey = event.symbol  // Symbol 기반 파티셔닝으로 순서 보장
 
-        kafkaTemplate.send("trade.events", partitionKey, message)
+        kafkaTemplate.send("account.events", partitionKey, message)
     }
 
-    private fun processTradeFailedEvent(record: Struct) {
-        val event = mapToMatchingCreatedDto(record) // Failed 이벤트도 같은 DTO 구조 사용
+    private fun processAccountUpdateFailedEvent(record: Struct) {
+        val event = mapToAccountCreatedDto(record)
 
         logger.info(
-            "Publishing trade failed event - OrderId: {}, Symbol: {}",
-            event.buyOrderId,
-            event.symbol
+            "Publishing account update failed event - TradeId: {}, Reason: {}, FailureType: {}",
+            event.tradeId,
+            event.reason,
+            event.failureType
         )
 
         val message = objectMapper.writeValueAsString(event)
         val partitionKey = event.symbol
 
-        kafkaTemplate.send("trade.events", partitionKey, message)
+        kafkaTemplate.send("account.events", partitionKey, message)
     }
 
-    private fun mapToMatchingCreatedDto(record: Struct): MatchingCreatedDto {
+    private fun processAccountRollbackEvent(record: Struct) {
+        val event = mapToAccountCreatedDto(record)
+
+        logger.info(
+            "Publishing account rollback event - TradeId: {}, UserId: {}, Symbol: {}, Reason: {}",
+            event.tradeId,
+            event.buyUserId,
+            event.symbol,
+            event.reason
+        )
+
+        val message = objectMapper.writeValueAsString(event)
+        val partitionKey = event.symbol
+
+        kafkaTemplate.send("account.events", partitionKey, message)
+    }
+
+    private fun mapToAccountCreatedDto(record: Struct): AccountCreatedDto {
         // BigDecimal 변환 헬퍼 함수
         fun extractBigDecimal(fieldName: String): BigDecimal {
             return try {
@@ -96,14 +115,13 @@ class MatchingOutboxConnector(
             }
         }
 
-        fun extractNullableBigDecimal(fieldName: String): BigDecimal {
+        // nullable BigDecimal 변환
+        fun extractNullableBigDecimal(fieldName: String): BigDecimal? {
             return try {
                 val value = record.getString(fieldName)
-                if (value.isNullOrBlank())
-                    BigDecimal.ZERO
-                else BigDecimal(value)
+                if (value.isNullOrBlank()) null else BigDecimal(value)
             } catch (e: Exception) {
-                BigDecimal.ZERO
+                null
             }
         }
 
@@ -125,24 +143,37 @@ class MatchingOutboxConnector(
             }
         }
 
-        return MatchingCreatedDto(
+        // Boolean 변환 (기본값 false)
+        fun extractBoolean(fieldName: String, defaultValue: Boolean = false): Boolean {
+            return try {
+                record.getBoolean(fieldName)
+            } catch (e: Exception) {
+                defaultValue
+            }
+        }
+
+        return AccountCreatedDto(
             eventId = record.getString("event_id"),
             sagaId = record.getString("saga_id"),
             eventType = record.getString("event_type"),
             tradeId = record.getString("trade_id"),
-            buyOrderId = record.getString("buy_order_id"),
-            sellOrderId = record.getString("sell_order_id"),
+            orderId = record.getString("order_id"),
             buyUserId = record.getString("buy_user_id"),
             sellUserId = record.getString("sell_user_id"),
             symbol = record.getString("symbol"),
-            quantity = extractBigDecimal("matched_quantity"),
-            price = extractNullableBigDecimal("matched_price"),
+            amount = extractBigDecimal("amount"),
+            quantity = extractBigDecimal("quantity"),
+            buyerNewBalance = extractNullableBigDecimal("buyer_new_balance"),
+            sellerNewBalance = extractNullableBigDecimal("seller_new_balance"),
+            failureType = extractNullableString("failure_type"),
+            reason = extractNullableString("reason"),
+            shouldRetry = extractBoolean("should_retry"),
+            partitionKey = record.getString("partition_key"),
             status = record.getString("status"),
             processedAt = extractNullableString("processed_at"),
             errorMessage = extractNullableString("error_message"),
             retryCount = extractInt("retry_count"),
-            createdAt = record.getString("created_at"),
-            partitionKey = extractNullableString("partition_key")
+            createdAt = record.getString("created_at")
         )
     }
 
@@ -151,10 +182,10 @@ class MatchingOutboxConnector(
     }
 
     override fun getConnectorName(): String {
-        return "MatchingOutboxConnector"
+        return "AccountOutboxConnector"
     }
 
     override fun getSourceTable(): String {
-        return "matching_outbox_events"
+        return "account_outbox_events"
     }
 }
