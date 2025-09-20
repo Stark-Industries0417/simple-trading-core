@@ -8,7 +8,9 @@ import com.trading.account.infrastructure.outbox.AccountOutboxEvent
 import com.trading.account.infrastructure.outbox.AccountOutboxRepository
 import com.trading.common.dto.cdc.matching.MatchingCreatedDto
 import com.trading.common.outbox.EventTypes
+import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
+import org.springframework.kafka.support.Acknowledgment
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
@@ -19,18 +21,36 @@ class AccountSagaService(
     private val accountOutboxRepository: AccountOutboxRepository,
     private val objectMapper: ObjectMapper
 ) {
+    private val logger = LoggerFactory.getLogger(AccountSagaService::class.java)
 
-    @KafkaListener(topics = ["trade.events"], groupId = "account-saga-group")
-    fun handleTradeEvent(message: String) {
+    @KafkaListener(
+        topics = ["trade.events"],
+        groupId = "account-saga-group",
+        containerFactory = "kafkaListenerContainerFactory"
+    )
+    fun handleTradeEvent(
+        message: String,
+        acknowledgment: Acknowledgment
+    ) {
         try {
             val jsonNode = objectMapper.readTree(message)
             val eventType = jsonNode.get("eventType")?.asText()
-            if (eventType == null) return
             val sagaId = jsonNode.get("sagaId")?.asText()
 
-            when (eventType) {
+            if (eventType == null || sagaId == null) {
+                logger.warn("Invalid event - missing eventType or sagaId: {}", message)
+                acknowledgment.acknowledge()
+                return
+            }
+
+            if (isAlreadyProcessed(sagaId)) {
+                logger.info("Event already processed for sagaId: {}", sagaId)
+                acknowledgment.acknowledge()
+                return
+            }
+
+            val success = when (eventType) {
                 EventTypes.Trade.CREATED -> {
-                    if (sagaId == null) return
                     val event = objectMapper.readValue(message, MatchingCreatedDto::class.java)
                     processAccountUpdate(event)
                 }
@@ -42,14 +62,35 @@ class AccountSagaService(
                     val event = objectMapper.readValue(message, MatchingCreatedDto::class.java)
                     handleTradeFailed(event)
                 }
+                else -> {
+                    logger.warn("Unknown event type: {}", eventType)
+                    false
+                }
             }
+
+            if (success) {
+                acknowledgment.acknowledge()
+                logger.debug("Successfully processed and acknowledged event for sagaId: {}", sagaId)
+            } else {
+                logger.error("Failed to process event for sagaId: {}, will retry", sagaId)
+            }
+
         } catch (e: Exception) {
-            e.printStackTrace()
+            logger.error("Error processing event: {}", e.message, e)
+            acknowledgment.acknowledge()
         }
     }
 
-    private fun processAccountUpdate(event: MatchingCreatedDto) {
-        try {
+    /**
+     * sagaId로 이미 처리된 이벤트인지 확인 (멱등성 체크)
+     */
+    private fun isAlreadyProcessed(sagaId: String): Boolean {
+        val existingEvents = accountOutboxRepository.findBySagaId(sagaId)
+        return existingEvents.isNotEmpty()
+    }
+
+    private fun processAccountUpdate(event: MatchingCreatedDto): Boolean {
+        return try {
             val result = accountService.processTradeExecution(event)
 
             when (result) {
@@ -73,9 +114,11 @@ class AccountSagaService(
                     handleAccountUpdateFailure(event, result)
                 }
             }
+            true
 
         } catch (e: Exception) {
             handleAccountUpdateException(event, e)
+            false
         }
     }
 
@@ -146,8 +189,8 @@ class AccountSagaService(
         accountOutboxRepository.save(outboxEvent)
     }
 
-    private fun rollbackAccount(event: MatchingCreatedDto) {
-        try {
+    private fun rollbackAccount(event: MatchingCreatedDto): Boolean {
+        return try {
             val rollbackResult = accountService.rollbackTradeExecution(
                 tradeId = event.tradeId,
                 buyUserId = event.buyUserId,
@@ -190,33 +233,41 @@ class AccountSagaService(
                     accountOutboxRepository.save(outboxEvent)
                 }
             }
+            true
 
         } catch (e: Exception) {
-            e.printStackTrace()
+            logger.error("Failed to rollback account for sagaId: {}", event.sagaId, e)
+            false
         }
     }
 
-    private fun handleTradeFailed(event: MatchingCreatedDto) {
-        try {
-            accountService.releaseReservationByOrderId(event.buyOrderId)
-            accountService.releaseReservationByOrderId(event.sellOrderId)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+    private fun handleTradeFailed(event: MatchingCreatedDto): Boolean {
+        return try {
+            try {
+                accountService.releaseReservationByOrderId(event.buyOrderId)
+                accountService.releaseReservationByOrderId(event.sellOrderId)
+            } catch (e: Exception) {
+                logger.error("Failed to release reservation for sagaId: {}", event.sagaId, e)
+            }
 
-        val outboxEvent = AccountOutboxEvent.createAccountUpdateFailedEvent(
-            sagaId = event.sagaId,
-            tradeId = event.tradeId,
-            orderId = event.buyOrderId,
-            buyUserId = event.buyUserId,
-            sellUserId = event.sellUserId,
-            symbol = event.symbol,
-            amount = event.price * event.quantity,
-            quantity = event.quantity,
-            reason = "Matching failed",
-            failureType = "MATCHING_FAILED",
-            shouldRetry = false
-        )
-        accountOutboxRepository.save(outboxEvent)
+            val outboxEvent = AccountOutboxEvent.createAccountUpdateFailedEvent(
+                sagaId = event.sagaId,
+                tradeId = event.tradeId,
+                orderId = event.buyOrderId,
+                buyUserId = event.buyUserId,
+                sellUserId = event.sellUserId,
+                symbol = event.symbol,
+                amount = event.price * event.quantity,
+                quantity = event.quantity,
+                reason = "Matching failed",
+                failureType = "MATCHING_FAILED",
+                shouldRetry = false
+            )
+            accountOutboxRepository.save(outboxEvent)
+            true
+        } catch (e: Exception) {
+            logger.error("Failed to handle trade failure for sagaId: {}", event.sagaId, e)
+            false
+        }
     }
 }
