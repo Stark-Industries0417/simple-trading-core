@@ -33,6 +33,7 @@ object EventTypes {
         const val FAILED = "TradeFailed"
         const val ROLLBACK = "TradeRollback"
         const val SETTLED = "TradeSettled"
+        const val NO_MATCH = "TradeNoMatch"  // 매칭 없음 (정상 상황)
     }
 
     /**
