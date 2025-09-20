@@ -23,7 +23,6 @@ class OrderOutboxEvent(
     sagaId: String,
     eventType: String,
 
-
     @Column(nullable = false, length = 50)
     val orderId: String,
 
