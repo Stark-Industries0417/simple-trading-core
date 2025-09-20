@@ -1,5 +1,6 @@
 package com.trading.cdc.config
 
+import com.trading.cdc.connector.OrderOutboxConnector
 import com.trading.cdc.connector.OrderSagaConnector
 import io.debezium.config.Configuration
 import io.debezium.embedded.Connect
@@ -17,7 +18,7 @@ import java.util.*
 @Component
 class DebeziumConfig(
     private val cdcProperties: CdcProperties,
-    private val orderSagaConnector: OrderSagaConnector
+    private val orderOutboxConnector: OrderOutboxConnector
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -37,20 +38,9 @@ class DebeziumConfig(
             put("database.dbname", cdcProperties.database.name)
             put("database.server.name", cdcProperties.debezium.serverName)
             
-            put("table.include.list", "${cdcProperties.database.name}.order_saga_states")
-            
-            put("column.include.list", 
-                "${cdcProperties.database.name}.order_saga_states.saga_id," +
-                "${cdcProperties.database.name}.order_saga_states.trade_id," +
-                "${cdcProperties.database.name}.order_saga_states.order_id," +
-                "${cdcProperties.database.name}.order_saga_states.user_id," +
-                "${cdcProperties.database.name}.order_saga_states.symbol," +
-                "${cdcProperties.database.name}.order_saga_states.order_type," +
-                "${cdcProperties.database.name}.order_saga_states.state," +
-                "${cdcProperties.database.name}.order_saga_states.event_type," +
-                "${cdcProperties.database.name}.order_saga_states.event_payload," +
-                "${cdcProperties.database.name}.order_saga_states.topic," +
-                "${cdcProperties.database.name}.order_saga_states.last_modified_at"
+            put("table.include.list",
+                "${cdcProperties.database.name}.order_saga_states," +
+                "${cdcProperties.database.name}.order_outbox_events"
             )
             
             put("database.history", "io.debezium.relational.history.FileDatabaseHistory")
@@ -98,19 +88,31 @@ class DebeziumConfig(
                 logger.debug("Skipping tombstone record")
                 return
             }
-            
+
             val value = record.value() as Struct
             val operation = value.getString("op")
-            
+            val source = value.getStruct("source")
+            val table = source.getString("table")
+
+            logger.debug("Processing CDC record: table=$table, operation=$operation")
+
             when (operation) {
                 "c", "u" -> {
                     val after = value.getStruct("after")
                     if (after != null) {
-                        orderSagaConnector.processSagaStateChange(after)
+                        when (table) {
+                            "order_outbox_events" -> {
+                                logger.info("Processing order_outbox_events INSERT/UPDATE")
+                                orderOutboxConnector.processOutboxEvent(after)
+                            }
+                            else -> {
+                                logger.debug("Unknown table: $table, skipping")
+                            }
+                        }
                     }
                 }
                 "d" -> {
-                    logger.debug("Delete operation detected, skipping for saga pattern")
+                    logger.debug("Delete operation detected for table $table, skipping for saga pattern")
                 }
                 else -> {
                     logger.warn("Unknown operation: $operation")
