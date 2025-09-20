@@ -90,6 +90,28 @@ class MatchingOutboxEvent(
             )
         }
 
+        fun createNoMatchEvent(
+            sagaId: String,
+            orderId: String,
+            userId: String,
+            symbol: String,
+            orderQuantity: BigDecimal,
+            orderPrice: BigDecimal
+        ): MatchingOutboxEvent {
+            return MatchingOutboxEvent(
+                sagaId = sagaId,
+                eventType = EventTypes.Trade.NO_MATCH,  // 매칭 없음을 명시
+                buyOrderId = orderId,
+                sellOrderId = "",
+                buyUserId = userId,
+                sellUserId = "",
+                symbol = symbol,
+                matchedQuantity = BigDecimal.ZERO,  // 매칭된 수량 0
+                matchedPrice = orderPrice,
+                status = MatchingStatus.PROCESSED  // 처리는 완료됨
+            )
+        }
+
         fun createMatchingFailedEvent(
             sagaId: String,
             buyOrderId: String,
