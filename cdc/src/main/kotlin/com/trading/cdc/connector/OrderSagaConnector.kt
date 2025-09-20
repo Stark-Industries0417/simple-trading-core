@@ -14,7 +14,6 @@ import java.util.*
 import jakarta.annotation.PostConstruct
 import jakarta.annotation.PreDestroy
 
-@Component
 class OrderSagaConnector(
     private val cdcProperties: CdcProperties,
     private val objectMapper: ObjectMapper,
