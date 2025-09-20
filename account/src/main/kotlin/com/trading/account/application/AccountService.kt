@@ -5,16 +5,15 @@ import com.trading.account.infrastructure.persistence.AccountRepository
 import com.trading.account.infrastructure.persistence.ReservationInfoRepository
 import com.trading.account.infrastructure.persistence.StockHoldingRepository
 import com.trading.account.infrastructure.persistence.TransactionLogRepository
+import com.trading.common.dto.cdc.matching.MatchingCreatedDto
 
 import com.trading.common.dto.order.OrderSide
-import com.trading.common.event.matching.TradeExecutedEvent
 import com.trading.common.exception.account.InsufficientBalanceException
-import com.trading.common.util.UUIDv7Generator
 import jakarta.persistence.PessimisticLockException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
-import java.time.Instant
+
 
 @Service
 @Transactional
@@ -30,22 +29,33 @@ class AccountService(
         return accountRepository.save(account)
     }
     
-    fun processTradeExecution(event: TradeExecutedEvent): AccountUpdateResult {
-        val startTime = System.currentTimeMillis()
-        
+    fun processTradeExecution(event: MatchingCreatedDto): AccountUpdateResult {
+
         return try {
             val sortedUserIds = listOf(event.buyUserId, event.sellUserId).sorted()
             val accounts = sortedUserIds.map { userId ->
                 accountRepository.findByUserIdWithLock(userId)
                     ?: throw AccountNotFoundException("Account not found: $userId")
             }
-            
+
             val (buyerAccount, sellerAccount) = if (sortedUserIds[0] == event.buyUserId) {
                 accounts[0] to accounts[1]
             } else {
                 accounts[1] to accounts[0]
             }
-            
+
+            val buyerReservation = reservationInfoRepository.findByOrderId(event.buyOrderId)
+            if (buyerReservation != null && buyerReservation.isActive()) {
+                buyerReservation.confirm()
+                reservationInfoRepository.save(buyerReservation)
+            }
+
+            val sellerReservation = reservationInfoRepository.findByOrderId(event.sellOrderId)
+            if (sellerReservation != null && sellerReservation.isActive()) {
+                sellerReservation.confirm()
+                reservationInfoRepository.save(sellerReservation)
+            }
+
             val totalCost = event.price * event.quantity
             buyerAccount.confirmReservation(event.tradeId, totalCost)
             
@@ -95,11 +105,11 @@ class AccountService(
             )
             
         } catch (ex: InsufficientBalanceException) {
-            handleBusinessFailure(event, ex)
+            handleBusinessFailure(ex)
         } catch (ex: PessimisticLockException) {
-            handleTechnicalFailure(event, ex)
+            handleTechnicalFailure(ex)
         } catch (ex: Exception) {
-            handleSystemFailure(event, ex)
+            handleSystemFailure(ex)
         }
     }
     
@@ -166,26 +176,19 @@ class AccountService(
         return result
     }
 
-    fun releaseReservationByOrderId(orderId: String, traceId: String): Boolean {
+    fun releaseReservationByOrderId(orderId: String): Boolean {
         return try {
             val reservationInfo = reservationInfoRepository.findByOrderId(orderId)
             
-            if (reservationInfo == null) {
-                // 예약 정보가 없다는 것은 예약이 생성되지 않았거나 이미 처리됨
-                return true
-            }
-            
-            if (!reservationInfo.isActive()) {
-                return true
-            }
-            
+            if (reservationInfo == null) return true
+            if (!reservationInfo.isActive()) return true
+
             val success = when (reservationInfo.side) {
                 OrderSide.BUY -> {
                     val account = accountRepository.findByUserIdWithLock(reservationInfo.userId)
                     if (account != null && reservationInfo.reservedAmount != null) {
                         account.releaseReservation(reservationInfo.reservedAmount)
                         accountRepository.save(account)
-                        
                         true
                     } else {
                         false
@@ -227,10 +230,8 @@ class AccountService(
         symbol: String,
         quantity: BigDecimal,
         price: BigDecimal,
-        traceId: String
     ): RollbackResult {
-        val startTime = System.currentTimeMillis()
-        
+
         return try {
             val sortedUserIds = listOf(buyUserId, sellUserId).sorted()
             val accounts = sortedUserIds.map { userId ->
@@ -254,9 +255,8 @@ class AccountService(
             if (buyerHolding != null) {
                 buyerHolding.rollbackPurchase(quantity, price)
                 stockHoldingRepository.save(buyerHolding)
-            } else {
             }
-            
+
             val sellerHolding = stockHoldingRepository
                 .findByUserIdAndSymbolWithLock(sellUserId, symbol)
                 ?: StockHolding.create(sellUserId, symbol)
@@ -305,7 +305,6 @@ class AccountService(
     }
     
     private fun handleBusinessFailure(
-        event: TradeExecutedEvent, 
         ex: Exception
     ): AccountUpdateResult {
         return AccountUpdateResult.Failure(
@@ -315,7 +314,6 @@ class AccountService(
     }
     
     private fun handleTechnicalFailure(
-        event: TradeExecutedEvent,
         ex: Exception
     ): AccountUpdateResult {
         return AccountUpdateResult.Failure(
@@ -325,10 +323,8 @@ class AccountService(
     }
     
     private fun handleSystemFailure(
-        event: TradeExecutedEvent,
         ex: Exception
     ): AccountUpdateResult {
-        
         return AccountUpdateResult.Failure(
             reason = "System failure",
             shouldRetry = false
