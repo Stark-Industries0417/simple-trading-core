@@ -23,11 +23,10 @@ class OrderController(
         @RequestHeader("X-User-Id") userId: String,
         @RequestHeader(value = "X-Trace-Id", required = false) traceId: String?,
     ): ResponseEntity<OrderResponse> {
-        val effectiveTraceId = traceId ?: traceIdGenerator.generate()
         require(userId.isNotBlank()) { "User ID cannot be blank" }
         require(userId.length <= 50) { "User ID too long" }
 
-        val orderResponse = orderSagaService.createOrderWithSaga(request, userId, effectiveTraceId)
+        val orderResponse = orderSagaService.createOrderWithSaga(request, userId)
 
         return ResponseEntity.status(HttpStatus.CREATED).body(orderResponse)
     }
@@ -41,11 +40,10 @@ class OrderController(
     ): ResponseEntity<OrderResponse> {
         require(userId.isNotBlank()) { "User ID cannot be blank" }
         require(orderId.isNotBlank()) { "Order ID cannot be blank" }
-        
-        val effectiveTraceId = traceId ?: traceIdGenerator.generate()
+
         val reason = cancelRequest?.reason ?: "User cancelled"
 
-        val cancelledOrder = orderSagaService.cancelOrderWithSaga(orderId, userId, reason, effectiveTraceId)
+        val cancelledOrder = orderSagaService.cancelOrderWithSaga(orderId, userId, reason)
         return ResponseEntity.ok(cancelledOrder)
     }
     
