@@ -11,7 +11,8 @@ data class KafkaProperties(
     
     var producer: ProducerProperties = ProducerProperties(),
     var consumer: ConsumerProperties = ConsumerProperties(),
-    var topics: TopicProperties = TopicProperties()
+    var topics: TopicProperties = TopicProperties(),
+    var updateStatus: UpdateProperties = UpdateProperties()
 )
 
 data class ProducerProperties(
@@ -38,5 +39,11 @@ data class TopicProperties(
     var orderEvents: String = "order.events",
     var tradeEvents: String = "trade.events",
     var accountEvents: String = "account.events",
-    var marketData: String = "market.data"
+    var marketData: String = "market.data",
+    val dlqTopic: String = "dead.letter.queue",
+)
+
+data class UpdateProperties(
+    val groupId: String = "update.status",
+    val dlqGroupId: String = "dead.letter",
 )

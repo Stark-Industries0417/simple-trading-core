@@ -34,6 +34,11 @@ kafka:
     trade-events: trade.events
     account-events: account.events
     market-data: market.data
+    dql-topic: dead.letter.queue
+
+  update-status:
+    group-id: update.status
+    dlq-group-id: dead.letter
 
 matching:
   engine:
