@@ -5,7 +5,6 @@ import com.trading.common.dto.cdc.order.OrderCreatedDto
 import com.trading.common.dto.cdc.order.OrderCancelledDto
 import com.trading.common.outbox.EventTypes.Order.CANCELLED
 import com.trading.common.outbox.EventTypes.Order.CREATED
-import com.trading.matching.config.KafkaProperties
 import com.trading.matching.infrastructure.engine.MatchingEngineManager
 import com.trading.matching.infrastructure.outbox.MatchingOutboxEvent
 import com.trading.matching.infrastructure.outbox.MatchingOutboxRepository
@@ -74,7 +73,7 @@ class MatchingSagaService(
                 buyUserId = event.userId,
                 sellUserId = "",
                 symbol = event.symbol,
-                matchedQuantity = BigDecimal(event.quantity),
+                matchedQuantity = event.quantity,
                 matchedPrice = event.price
             )
             matchingOutboxRepository.save(failedOutboxEvent)
