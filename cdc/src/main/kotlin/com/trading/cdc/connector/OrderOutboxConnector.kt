@@ -3,20 +3,39 @@ package com.trading.cdc.connector
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
 import com.trading.cdc.config.CdcProperties
-import com.trading.common.outbox.OutboxStatus
+import com.trading.cdc.health.CdcHealthIndicator
+import com.trading.common.outbox.EventTypes
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.connect.data.Struct
 import org.slf4j.LoggerFactory
+import org.springframework.stereotype.Component
+import java.math.BigDecimal
 import java.util.*
 import jakarta.annotation.PostConstruct
 import jakarta.annotation.PreDestroy
 
+data class OrderOutboxEventDto(
+    val eventId: String,
+    val sagaId: String,
+    val eventType: String,
+    val tradeId: String?,
+    val orderId: String,
+    val userId: String,
+    val symbol: String,
+    val orderType: String,
+    val side: String,
+    val quantity: String,
+    val price: String?,
+    val createdAt: String
+)
+
+@Component
 class OrderOutboxConnector(
     private val cdcProperties: CdcProperties,
     private val objectMapper: ObjectMapper,
-    private val healthIndicator: com.trading.cdc.health.CdcHealthIndicator
+    private val healthIndicator: CdcHealthIndicator
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
     private lateinit var kafkaProducer: KafkaProducer<String, String>
@@ -42,53 +61,27 @@ class OrderOutboxConnector(
     
     fun processOutboxEvent(outboxRecord: Struct) {
         try {
-            val eventId = outboxRecord.getString("event_id")
-            val aggregateId = outboxRecord.getString("aggregate_id")
-            val eventType = outboxRecord.getString("event_type")
-            val payload = outboxRecord.getString("payload")
-            val status = outboxRecord.getString("status")
-            val sagaId = outboxRecord.getString("saga_id")
-            val tradeId = try { outboxRecord.getString("trade_id") } catch (e: Exception) { null }
-            
-            if (status != OutboxStatus.PENDING.name) {
-                logger.debug("Skipping non-pending event: $eventId with status: $status")
-                return
-            }
-            
-            val topic = determineTopicForEventType(eventType)
-            
-            val symbol = try {
-                val payloadNode = objectMapper.readTree(payload)
-                payloadNode.path("order").path("symbol").asText()
-            } catch (e: Exception) {
-                logger.warn("Failed to extract symbol from payload, using aggregateId as key: ${e.message}")
-                aggregateId
-            }
-            
-            logger.info("Processing outbox event: eventId=$eventId, aggregateId=$aggregateId, eventType=$eventType, topic=$topic, sagaId=$sagaId, symbol=$symbol")
-            
-            val enrichedPayload = try {
-                val payloadNode = objectMapper.readTree(payload) as ObjectNode
-                payloadNode.put("sagaId", sagaId)
-                tradeId?.let { payloadNode.put("tradeId", it) }
-                payloadNode.put("eventType", eventType) // Ensure eventType is present
-                objectMapper.writeValueAsString(payloadNode)
-            } catch (e: Exception) {
-                logger.warn("Failed to enrich payload, sending original: ${e.message}")
-                payload
-            }
+            val outboxEvent = mapToOrderOutboxEvent(outboxRecord)
+
+            val topic = determineTopicForEventType(outboxEvent.eventType)
+
+            logger.info("Processing outbox event: eventId=${outboxEvent.eventId}, orderId=${outboxEvent.orderId}, " +
+                    "eventType=${outboxEvent.eventType}, topic=$topic, sagaId=${outboxEvent.sagaId}, symbol=${outboxEvent.symbol}")
+
+            val messageJson = objectMapper.writeValueAsString(outboxEvent)
             
             val record = ProducerRecord(
                 topic,
-                symbol,
-                enrichedPayload
+                outboxEvent.symbol,
+                messageJson
             )
             
             kafkaProducer.send(record) { metadata, exception ->
                 if (exception != null) {
-                    logger.error("Failed to send event $eventId to Kafka: ${exception.message}", exception)
+                    logger.error("Failed to send event ${outboxEvent.eventId} to Kafka: ${exception.message}", exception)
                 } else {
-                    logger.info("Successfully sent event $eventId to Kafka topic ${metadata.topic()} partition ${metadata.partition()} offset ${metadata.offset()}")
+                    logger.info("Successfully sent event ${outboxEvent.eventId} to Kafka topic ${metadata.topic()} " +
+                            "partition ${metadata.partition()} offset ${metadata.offset()}")
                     healthIndicator.incrementEventsProcessed()
                 }
             }
@@ -98,10 +91,29 @@ class OrderOutboxConnector(
         }
     }
     
+    private fun mapToOrderOutboxEvent(record: Struct): OrderOutboxEventDto {
+        return OrderOutboxEventDto(
+            eventId = record.getString("event_id"),
+            sagaId = record.getString("saga_id"),
+            eventType = record.getString("event_type"),
+            tradeId = try { record.getString("trade_id") } catch (e: Exception) { null },
+            orderId = record.getString("order_id"),
+            userId = record.getString("user_id"),
+            symbol = record.getString("symbol"),
+            orderType = record.getString("order_type"),
+            side = record.getString("side"),
+            quantity = record.getString("quantity"),
+            price = try { record.getString("price") } catch (e: Exception) { null },
+            createdAt = record.getString("created_at")
+        )
+    }
+
     private fun determineTopicForEventType(eventType: String): String {
+
         return when (eventType) {
-            "OrderCreated" -> cdcProperties.kafka.orderEventsTopic
-            "OrderCancelled" -> cdcProperties.kafka.orderEventsTopic
+            EventTypes.Order.CREATED,
+            EventTypes.Order.CANCELLED
+                -> cdcProperties.kafka.orderEventsTopic
             else -> {
                 logger.warn("Unknown event type: $eventType, using default topic")
                 cdcProperties.kafka.orderEventsTopic
