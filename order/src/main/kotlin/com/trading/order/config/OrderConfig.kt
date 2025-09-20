@@ -55,15 +55,6 @@ class OrderConfig {
     fun uuidv7Generator(): UUIDv7Generator {
         return UUIDv7Generator()
     }
-    
-    @Bean
-    @ConditionalOnMissingBean
-    fun eventPublisher(
-        applicationEventPublisher: org.springframework.context.ApplicationEventPublisher,
-        traceIdGenerator: TraceIdGenerator
-    ): EventPublisher {
-        return SpringEventPublisher(applicationEventPublisher, traceIdGenerator)
-    }
 }
 
 
