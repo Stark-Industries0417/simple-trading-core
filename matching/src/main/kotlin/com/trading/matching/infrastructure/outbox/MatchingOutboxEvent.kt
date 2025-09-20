@@ -47,7 +47,7 @@ class MatchingOutboxEvent(
 
     @Column(nullable = false, length = 20)
     @Enumerated(EnumType.STRING)
-    var status: OutboxStatus = OutboxStatus.PENDING,
+    var status: MatchingStatus = MatchingStatus.PENDING,
 
     @Column
     var processedAt: Instant? = null,
@@ -115,23 +115,23 @@ class MatchingOutboxEvent(
     }
 
     fun markAsProcessed() {
-        this.status = OutboxStatus.PROCESSED
+        this.status = MatchingStatus.PROCESSED
         this.processedAt = Instant.now()
     }
 
     fun markAsFailed(error: String) {
-        this.status = OutboxStatus.FAILED
+        this.status = MatchingStatus.FAILED
         this.errorMessage = error
         this.retryCount++
     }
 
     fun markForRetry() {
-        this.status = OutboxStatus.RETRY
+        this.status = MatchingStatus.RETRY
         this.retryCount++
     }
 }
 
-enum class OutboxStatus {
+enum class MatchingStatus {
     PENDING,    // 처리 대기중
     PROCESSED,  // CDC에 의해 처리됨
     FAILED,     // 처리 실패
