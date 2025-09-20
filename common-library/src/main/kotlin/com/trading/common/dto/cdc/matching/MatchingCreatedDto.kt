@@ -18,8 +18,8 @@ data class MatchingCreatedDto(
     val buyUserId: String,
     val sellUserId: String,
     val symbol: String,
-    val matchedQuantity: BigDecimal,
-    val matchedPrice: BigDecimal?,
+    val quantity: BigDecimal,
+    val price: BigDecimal,
     val status: String,              // MatchingStatus (PENDING, PROCESSED, FAILED, RETRY)
     val processedAt: String?,
     val errorMessage: String?,       // 에러 메시지 (nullable)
