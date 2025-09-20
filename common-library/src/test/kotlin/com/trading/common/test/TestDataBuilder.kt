@@ -5,7 +5,7 @@ import com.trading.common.dto.market.MarketDataDTO
 import com.trading.common.dto.order.*
 import com.trading.common.dto.trade.TradeDTO
 import com.trading.common.event.order.OrderCreatedEvent
-import com.trading.common.event.order.OrderMatchedEvent
+import com.trading.common.dto.cdc.order.OrderMatchedEvent
 import com.trading.common.event.market.MarketDataUpdatedEvent
 import com.trading.common.util.UUIDv7Generator
 import java.math.BigDecimal
@@ -27,8 +27,8 @@ object TestDataBuilder {
         status: OrderStatus = OrderStatus.PENDING,
         traceId: String = uuidGenerator.generate(),
         version: Long = 0
-    ): OrderDTO {
-        return OrderDTO(
+    ): OrderDto {
+        return OrderDto(
             orderId = orderId,
             userId = userId,
             symbol = symbol,
@@ -118,14 +118,16 @@ object TestDataBuilder {
         aggregateId: String = uuidGenerator.generateOrderId(),
         occurredAt: Instant = Instant.now(),
         traceId: String = uuidGenerator.generate(),
-        order: OrderDTO = orderDTO()
+        order: OrderDto = orderDTO(),
+        sagaId: String = uuidGenerator.generate()
     ): OrderCreatedEvent {
         return OrderCreatedEvent(
             eventId = eventId,
             aggregateId = aggregateId,
             occurredAt = occurredAt,
             traceId = traceId,
-            order = order
+            order = order,
+            sagaId = sagaId
         )
     }
     fun orderMatchedEvent(

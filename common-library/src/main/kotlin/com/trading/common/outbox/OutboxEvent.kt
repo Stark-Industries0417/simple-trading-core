@@ -33,13 +33,6 @@ abstract class OutboxEvent(
     val eventType: String,
 
     /**
-     * 추적 ID - 요청 추적용 (옵션)
-     * API 요청부터 전체 처리까지 추적
-     */
-    @Column(length = 50)
-    val tradeId: String? = null,
-
-    /**
      * 생성 시각 - 이벤트 발생 시각
      * 모니터링 및 지연 감지용
      */

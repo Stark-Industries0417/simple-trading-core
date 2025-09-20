@@ -28,6 +28,7 @@ object EventTypes {
      * Trade/Matching 도메인 이벤트
      */
     object Trade {
+        const val CREATED = "TradeCreated"
         const val EXECUTED = "TradeExecuted"
         const val FAILED = "TradeFailed"
         const val ROLLBACK = "TradeRollback"
