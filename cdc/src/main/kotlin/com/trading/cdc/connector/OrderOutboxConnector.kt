@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
 import com.trading.cdc.config.CdcProperties
 import com.trading.cdc.health.CdcHealthIndicator
+import com.trading.common.dto.cdc.order.OrderCreatedDto
+import com.trading.common.dto.order.OrderSide
+import com.trading.common.dto.order.OrderType
 import com.trading.common.outbox.EventTypes
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerConfig
@@ -16,20 +19,6 @@ import java.util.*
 import jakarta.annotation.PostConstruct
 import jakarta.annotation.PreDestroy
 
-data class OrderOutboxEventDto(
-    val eventId: String,
-    val sagaId: String,
-    val eventType: String,
-    val tradeId: String?,
-    val orderId: String,
-    val userId: String,
-    val symbol: String,
-    val orderType: String,
-    val side: String,
-    val quantity: String,
-    val price: String?,
-    val createdAt: String
-)
 
 @Component
 class OrderOutboxConnector(
@@ -91,19 +80,63 @@ class OrderOutboxConnector(
         }
     }
     
-    private fun mapToOrderOutboxEvent(record: Struct): OrderOutboxEventDto {
-        return OrderOutboxEventDto(
+    private fun mapToOrderOutboxEvent(record: Struct): OrderCreatedDto {
+        // OrderType enum 변환
+        val orderTypeStr = record.getString("order_type")
+        val orderType = try {
+            OrderType.valueOf(orderTypeStr.uppercase())
+        } catch (e: Exception) {
+            logger.warn("Invalid order type: $orderTypeStr, defaulting to MARKET")
+            OrderType.MARKET
+        }
+
+        val orderSideStr = record.getString("order_side")
+        val orderSide = try {
+            OrderSide.valueOf(orderSideStr.uppercase())
+        } catch (e: Exception) {
+            logger.warn("Invalid order side: $orderSideStr, defaulting to BUY")
+            OrderSide.BUY
+        }
+
+        val priceStr = try {
+            record.getString("price")
+        } catch (e: Exception) {
+            null
+        }
+        val price = priceStr?.let {
+            try {
+                BigDecimal(it)
+            } catch (e: Exception) {
+                logger.warn("Invalid price format: $it")
+                null
+            }
+        }
+
+        val quantityStr = try {
+            record.getString("quantity")
+        } catch (e: Exception) {
+            "0"
+        }
+        val quantity = quantityStr.let {
+            try {
+                BigDecimal(it)
+            } catch (e: Exception) {
+                logger.warn("Invalid quantity format: $it")
+                BigDecimal.ZERO
+            }
+        }
+
+        return OrderCreatedDto(
             eventId = record.getString("event_id"),
             sagaId = record.getString("saga_id"),
             eventType = record.getString("event_type"),
-            tradeId = try { record.getString("trade_id") } catch (e: Exception) { null },
             orderId = record.getString("order_id"),
             userId = record.getString("user_id"),
             symbol = record.getString("symbol"),
-            orderType = record.getString("order_type"),
-            side = record.getString("side"),
-            quantity = record.getString("quantity"),
-            price = try { record.getString("price") } catch (e: Exception) { null },
+            orderType = orderType,
+            side = orderSide,
+            quantity = quantity,
+            price = price,
             createdAt = record.getString("created_at")
         )
     }
