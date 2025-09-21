@@ -1,7 +1,7 @@
 spring:
   # MySQL 데이터소스 설정
   datasource:
-    url: ${DB_HOST:jdbc:mysql://localhost:3306/trading_db?useSSL=false&serverTimezone=UTC&createDatabaseIfNotExist=true}
+    url: ${DB_HOST:jdbc:mysql://localhost:3306/trading_core?useSSL=false&serverTimezone=UTC&createDatabaseIfNotExist=true}
     driver-class-name: com.mysql.cj.jdbc.Driver
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:password}
