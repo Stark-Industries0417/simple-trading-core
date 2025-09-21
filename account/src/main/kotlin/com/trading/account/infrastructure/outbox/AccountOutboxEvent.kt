@@ -14,8 +14,7 @@ import java.time.Instant
         Index(name = "idx_account_outbox_saga", columnList = "sagaId"),
         Index(name = "idx_account_outbox_created", columnList = "createdAt"),
         Index(name = "idx_account_outbox_trade", columnList = "tradeId"),
-        Index(name = "idx_account_outbox_status", columnList = "status"),
-        Index(name = "idx_account_outbox_partition", columnList = "partitionKey")
+        Index(name = "idx_account_outbox_status", columnList = "status")
     ]
 )
 class AccountOutboxEvent(
@@ -58,9 +57,6 @@ class AccountOutboxEvent(
 
     @Column(nullable = false)
     val shouldRetry: Boolean = false,
-
-    @Column(nullable = false, length = 50)
-    val partitionKey: String = symbol,
 
     @Column(nullable = false, length = 20)
     @Enumerated(EnumType.STRING)
