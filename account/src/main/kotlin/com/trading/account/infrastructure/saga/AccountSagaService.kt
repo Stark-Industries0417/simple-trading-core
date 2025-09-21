@@ -1,19 +1,26 @@
 package com.trading.account.infrastructure.saga
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.trading.account.application.AccountNotFoundException
 import com.trading.account.application.AccountService
 import com.trading.account.application.AccountUpdateResult
+import com.trading.account.domain.ReservationResult
+import com.trading.account.domain.StockReservationResult
 import com.trading.account.infrastructure.outbox.AccountOutboxEvent
 import com.trading.account.infrastructure.outbox.AccountOutboxRepository
 import com.trading.common.dto.cdc.matching.MatchingCreatedDto
 import com.trading.common.dto.cdc.matching.MatchingFailedDto
 import com.trading.common.dto.cdc.order.OrderCancelledDto
+import com.trading.common.dto.cdc.order.OrderCreatedDto
+import com.trading.common.dto.order.OrderSide
+import com.trading.common.dto.order.OrderType
 import com.trading.common.outbox.EventTypes
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.kafka.support.Acknowledgment
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.math.BigDecimal
 
 @Service
 @Transactional
@@ -59,6 +66,10 @@ class AccountSagaService(
                     val event = objectMapper.readValue(message, MatchingFailedDto::class.java)
                     handleTradeFailed(event)
                 }
+                EventTypes.Order.CREATED -> {
+                    val event = objectMapper.readValue(message, OrderCreatedDto::class.java)
+                    handleOrderCreated(event)
+                }
                 EventTypes.Order.CANCELLED -> {
                     val event = objectMapper.readValue(message, OrderCancelledDto::class.java)
                     handleOrderCancelled(event)
@@ -80,6 +91,92 @@ class AccountSagaService(
             logger.error("Error processing event: {}", e.message, e)
             acknowledgment.acknowledge()
         }
+    }
+
+    private fun handleOrderCreated(event: OrderCreatedDto): Boolean {
+        try {
+            val result = when (event.side) {
+                OrderSide.BUY -> {
+                    val amountToReserve = when (event.orderType) {
+                        OrderType.MARKET -> {
+                            // TODO 시장가 추후 구현
+                            BigDecimal.TEN
+                        }
+                        OrderType.LIMIT -> {
+                            event.price?.multiply(event.quantity)
+                                ?: throw IllegalArgumentException("Price must be provided for limit buy order")
+                        }
+                    }
+                    accountService.reserveFundsForOrder(
+                        orderId = event.orderId,
+                        userId = event.userId,
+                        symbol = event.symbol,
+                        quantity = event.quantity,
+                        price = event.price!!,
+                        amount = amountToReserve
+                    )
+                }
+                OrderSide.SELL -> {
+                    accountService.reserveStocksForOrder(
+                        orderId = event.orderId,
+                        userId = event.userId,
+                        symbol = event.symbol,
+                        quantity = event.quantity,
+                        price = event.price,
+                        traceId = event.sagaId
+                    )
+                }
+            }
+
+            when (result) {
+                is ReservationResult.Success -> {
+                    logger.info("Successfully reserved funds for orderId: {}", event.orderId)
+                }
+                is ReservationResult.InsufficientFunds -> {
+                    logger.warn("Insufficient funds for orderId: {}. Required: {}, Available: {}", event.orderId, result.required, result.available)
+                    handleReservationFailure(event, "Insufficient funds", "INSUFFICIENT_FUNDS")
+                }
+                is StockReservationResult.Success -> {
+                    logger.info("Successfully reserved stock for orderId: {}", event.orderId)
+                }
+                is StockReservationResult.InsufficientShares -> {
+                    logger.warn("Insufficient shares for orderId: {}. Required: {}, Available: {}", event.orderId, result.required, result.available)
+                    handleReservationFailure(event, "Insufficient shares", "INSUFFICIENT_SHARES")
+                }
+                else -> {
+                    logger.error("Unknown reservation result type: {}", result.javaClass.name)
+                    handleReservationFailure(event, "Unknown reservation result", "TECHNICAL_ERROR")
+                }
+            }
+            return true
+
+        } catch (e: AccountNotFoundException) {
+            logger.error("Account not found for userId: {} in orderId: {}", event.userId, event.orderId, e)
+            handleReservationFailure(event, "Account not found", "ACCOUNT_NOT_FOUND")
+            return true
+        } catch (e: IllegalArgumentException) {
+            logger.error("Invalid order data for orderId: {}. Error: {}", event.orderId, e.message, e)
+            handleReservationFailure(event, e.message ?: "Invalid order data", "VALIDATION_ERROR")
+            return true
+        } catch (e: Exception) {
+            logger.error("Failed to handle order creation for orderId: {}. Error: {}", event.orderId, e.message, e)
+            handleReservationFailure(event, e.message ?: "Unknown error during reservation", "TECHNICAL_ERROR")
+            return true
+        }
+    }
+
+    private fun handleReservationFailure(event: OrderCreatedDto, reason: String, failureType: String) {
+        val outboxEvent = AccountOutboxEvent.createAccountReservationFailedEvent(
+            sagaId = event.sagaId,
+            orderId = event.orderId,
+            userId = event.userId,
+            symbol = event.symbol,
+            quantity = event.quantity,
+            reason = reason,
+            failureType = failureType,
+            shouldRetry = false
+        )
+        accountOutboxRepository.save(outboxEvent)
     }
 
 
