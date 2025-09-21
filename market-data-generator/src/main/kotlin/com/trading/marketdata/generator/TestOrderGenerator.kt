@@ -1,5 +1,6 @@
 package com.trading.marketdata.generator
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.trading.marketdata.config.MarketDataConfig
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -157,6 +158,7 @@ data class CreateOrderRequest(
     val price: BigDecimal?
 )
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 data class OrderResponse(
     val orderId: String,
     val userId: String,
@@ -166,5 +168,11 @@ data class OrderResponse(
     val quantity: BigDecimal,
     val price: BigDecimal?,
     val status: String,
-    val createdAt: String
+    val createdAt: String,
+    val updatedAt: String,
+    val filledQuantity: BigDecimal,
+    val remainingQuantity: BigDecimal,
+    val fillRatio: BigDecimal,
+    val cancellationReason: String?,
+    val version: Long
 )
