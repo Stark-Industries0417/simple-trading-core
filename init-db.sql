@@ -3,8 +3,8 @@
 -- Updated to match JPA Entity definitions
 -- ========================================
 
-CREATE DATABASE IF NOT EXISTS trading_db;
-USE trading_db;
+CREATE DATABASE IF NOT EXISTS trading_core;
+USE trading_core;
 
 -- ========================================
 -- Order Module Tables
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS order_outbox_events (
 
     INDEX idx_order_outbox_saga (saga_id),
     INDEX idx_order_outbox_created (created_at),
-    INDEX idx_order_outbox_order (order_id),
+    INDEX idx_order_outbox_order (order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ========================================
@@ -126,6 +126,35 @@ CREATE TABLE IF NOT EXISTS reservation_info (
     INDEX idx_reservation_user_id (user_id),
     INDEX idx_reservation_status (status),
     INDEX idx_reservation_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Account Outbox Events Table (matches AccountOutboxEvent.kt Entity)
+CREATE TABLE IF NOT EXISTS account_outbox_events (
+    event_id        VARCHAR(255) PRIMARY KEY,
+    saga_id         VARCHAR(255) NOT NULL,
+    event_type      VARCHAR(100) NOT NULL,
+    trade_id        VARCHAR(50)  NOT NULL,
+    order_id        VARCHAR(50)  NOT NULL,
+    buy_user_id     VARCHAR(50)  NOT NULL,
+    sell_user_id    VARCHAR(50)  NOT NULL,
+    symbol          VARCHAR(20)  NOT NULL,
+    amount          DECIMAL(19, 8) NOT NULL,
+    quantity        DECIMAL(19, 8) NOT NULL,
+    buyer_new_balance  DECIMAL(19, 8) NULL,
+    seller_new_balance DECIMAL(19, 8) NULL,
+    failure_type    VARCHAR(50)  NULL,
+    reason          VARCHAR(500) NULL,
+    should_retry    BOOLEAN      NOT NULL DEFAULT FALSE,
+    status          VARCHAR(20)  NOT NULL DEFAULT 'PENDING',  -- PENDING, PROCESSED, FAILED, RETRY
+    processed_at    TIMESTAMP(6) NULL,
+    error_message   VARCHAR(500) NULL,
+    retry_count     INT          NOT NULL DEFAULT 0,
+    created_at      TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+
+    INDEX idx_account_outbox_saga (saga_id),
+    INDEX idx_account_outbox_created (created_at),
+    INDEX idx_account_outbox_trade (trade_id),
+    INDEX idx_account_outbox_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ========================================
