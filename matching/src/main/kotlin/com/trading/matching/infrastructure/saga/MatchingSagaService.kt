@@ -3,6 +3,7 @@ package com.trading.matching.infrastructure.saga
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.trading.common.dto.cdc.order.OrderCreatedDto
 import com.trading.common.dto.cdc.order.OrderCancelledDto
+import com.trading.common.dto.order.OrderSide
 import com.trading.common.dto.order.OrderType
 import com.trading.common.outbox.EventTypes.Order.CANCELLED
 import com.trading.common.outbox.EventTypes.Order.CREATED
@@ -103,10 +104,10 @@ class MatchingSagaService(
 
                         val failedEvent = MatchingOutboxEvent.createMatchingFailedEvent(
                             sagaId = event.sagaId,
-                            buyOrderId = event.orderId,
-                            sellOrderId = "",
-                            buyUserId = event.userId,
-                            sellUserId = "",
+                            buyOrderId = if (event.side == OrderSide.BUY) event.orderId else "",
+                            sellOrderId = if (event.side == OrderSide.BUY) "" else event.orderId,
+                            buyUserId = if (event.side == OrderSide.BUY) event.userId else "",
+                            sellUserId = if (event.side == OrderSide.BUY) "" else event.userId,
                             symbol = event.symbol,
                             matchedQuantity = BigDecimal.ZERO,
                             matchedPrice = BigDecimal.ZERO
@@ -150,13 +151,13 @@ class MatchingSagaService(
             try {
                 val failedOutboxEvent = MatchingOutboxEvent.createMatchingFailedEvent(
                     sagaId = event.sagaId,
-                    buyOrderId = event.orderId,
-                    sellOrderId = "",
-                    buyUserId = event.userId,
-                    sellUserId = "",
+                    buyOrderId = if (event.side == OrderSide.BUY) event.orderId else "",
+                    sellOrderId = if (event.side == OrderSide.BUY) "" else event.orderId,
+                    buyUserId = if (event.side == OrderSide.BUY) event.userId else "",
+                    sellUserId = if (event.side == OrderSide.BUY) "" else event.userId,
                     symbol = event.symbol,
-                    matchedQuantity = event.quantity,
-                    matchedPrice = event.price
+                    matchedQuantity = BigDecimal.ZERO,
+                    matchedPrice = BigDecimal.ZERO
                 )
                 matchingOutboxRepository.save(failedOutboxEvent)
                 true
@@ -175,16 +176,15 @@ class MatchingSagaService(
                 symbol = event.symbol,
             )
 
-            // 취소 이벤트 저장
             val cancelledOutboxEvent = MatchingOutboxEvent.createMatchingFailedEvent(
                 sagaId = event.sagaId,
-                buyOrderId = event.orderId,
-                sellOrderId = "",
-                buyUserId = event.userId,
-                sellUserId = "",
+                buyOrderId = if (event.side == OrderSide.BUY) event.orderId else "",
+                sellOrderId = if (event.side == OrderSide.BUY) "" else event.orderId,
+                buyUserId = if (event.side == OrderSide.BUY) event.userId else "",
+                sellUserId = if (event.side == OrderSide.BUY) "" else event.userId,
                 symbol = event.symbol,
-                matchedQuantity = BigDecimal(event.quantity),
-                matchedPrice = event.price
+                matchedQuantity = BigDecimal.ZERO,
+                matchedPrice = BigDecimal.ZERO
             )
             matchingOutboxRepository.save(cancelledOutboxEvent)
 
