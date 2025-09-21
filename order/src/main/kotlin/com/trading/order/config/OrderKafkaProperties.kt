@@ -1,18 +1,17 @@
-package com.trading.matching.config
+package com.trading.order.config
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.context.annotation.Configuration
 
 @Configuration
 @ConfigurationProperties(prefix = "kafka")
-data class KafkaProperties(
+data class OrderKafkaProperties(
     var bootstrapServers: String = "localhost:9092",
     var schemaRegistryUrl: String? = null,
-    
+
     var producer: ProducerProperties = ProducerProperties(),
     var consumer: ConsumerProperties = ConsumerProperties(),
-    var topics: TopicProperties = TopicProperties(),
-    var updateStatus: UpdateProperties = UpdateProperties()
+    var topics: TopicProperties = TopicProperties()
 )
 
 data class ProducerProperties(
@@ -27,7 +26,7 @@ data class ProducerProperties(
 )
 
 data class ConsumerProperties(
-    var groupId: String = "matching-engine-group",
+    var groupId: String = "order-saga-group",
     var autoOffsetReset: String = "earliest",
     var enableAutoCommit: Boolean = false,
     var isolationLevel: String = "read_committed",
@@ -40,10 +39,5 @@ data class TopicProperties(
     var tradeEvents: String = "trade.events",
     var accountEvents: String = "account.events",
     var marketData: String = "market.data",
-    val dlqTopic: String = "dead.letter.queue",
-)
-
-data class UpdateProperties(
-    val groupId: String = "update.status",
-    val dlqGroupId: String = "dead.letter",
+    val dlqTopic: String = "dead.letter.queue"
 )

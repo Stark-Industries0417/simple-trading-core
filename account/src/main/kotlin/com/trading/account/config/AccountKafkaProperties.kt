@@ -5,7 +5,7 @@ import org.springframework.context.annotation.Configuration
 
 @Configuration
 @ConfigurationProperties(prefix = "kafka")
-data class KafkaProperties(
+data class AccountKafkaProperties(
     var bootstrapServers: String = "localhost:9092",
     var schemaRegistryUrl: String? = null,
     
