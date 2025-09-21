@@ -12,7 +12,7 @@ import com.trading.account.domain.TransactionLog
 import com.trading.account.domain.TransactionLogRepository
 import com.trading.account.domain.TransactionType
 import com.trading.account.infrastructure.reconciliation.BalanceReconciliationScheduler
-import com.trading.common.event.matching.TradeExecutedEvent
+import com.trading.common.dto.cdc.matching.MatchingCreatedDto
 import com.trading.common.util.UUIDv7Generator
 import io.mockk.*
 import org.assertj.core.api.Assertions.assertThat
@@ -220,12 +220,11 @@ class AccountIntegrationTest {
         sellUserId: String,
         price: BigDecimal,
         quantity: BigDecimal
-    ): TradeExecutedEvent {
-        return TradeExecutedEvent(
+    ): MatchingCreatedDto {
+        return MatchingCreatedDto(
             eventId = UUIDv7Generator.generate(),
-            aggregateId = tradeId,
-            occurredAt = Instant.now(),
-            traceId = "trace-${System.currentTimeMillis()}",
+            sagaId = "saga-${System.currentTimeMillis()}",
+            eventType = "TRADE_EXECUTED",
             tradeId = tradeId,
             symbol = "AAPL",
             buyOrderId = "buy-$tradeId",
@@ -234,7 +233,11 @@ class AccountIntegrationTest {
             sellUserId = sellUserId,
             price = price,
             quantity = quantity,
-            timestamp = System.currentTimeMillis()
+            status = "CREATED",
+            processedAt = null,
+            errorMessage = null,
+            retryCount = 0,
+            createdAt = Instant.now().toString()
         )
     }
 }
