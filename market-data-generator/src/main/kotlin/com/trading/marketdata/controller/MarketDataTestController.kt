@@ -1,6 +1,7 @@
 package com.trading.marketdata.controller
 
 import com.trading.marketdata.generator.MarketDataGenerator
+import com.trading.marketdata.generator.TestOrderGenerator
 import com.trading.marketdata.service.MarketDataEventListener
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.http.ResponseEntity
@@ -21,7 +22,8 @@ import org.springframework.web.bind.annotation.*
 )
 class MarketDataTestController(
     private val marketDataGenerator: MarketDataGenerator,
-    private val marketDataEventListener: MarketDataEventListener
+    private val marketDataEventListener: MarketDataEventListener,
+    private val testOrderGenerator: TestOrderGenerator? = null
 ) {
 
     /**
@@ -87,7 +89,7 @@ class MarketDataTestController(
      */
     @GetMapping("/summary")
     fun getSystemSummary(): ResponseEntity<Map<String, Any>> {
-        return ResponseEntity.ok(mapOf(
+        val summaryMap = mutableMapOf<String, Any>(
             "generator" to mapOf(
                 "isRunning" to marketDataGenerator.isRunning(),
                 "symbolCount" to 3
@@ -98,6 +100,26 @@ class MarketDataTestController(
                 "GOOGL" to marketDataGenerator.getCurrentPrice("GOOGL"),
                 "MSFT" to marketDataGenerator.getCurrentPrice("MSFT")
             )
+        )
+
+        // 주문 생성기가 활성화되어 있으면 통계 추가
+        testOrderGenerator?.let {
+            summaryMap["orderGenerator"] = it.getStatistics()
+        }
+
+        return ResponseEntity.ok(summaryMap)
+    }
+
+    /**
+     * 테스트 주문 생성기 통계 조회
+     */
+    @GetMapping("/order-generator/stats")
+    fun getOrderGeneratorStats(): ResponseEntity<Map<String, Any>> {
+        return testOrderGenerator?.let {
+            ResponseEntity.ok(it.getStatistics())
+        } ?: ResponseEntity.ok(mapOf(
+            "isEnabled" to false,
+            "message" to "Order generator is disabled"
         ))
     }
 }
