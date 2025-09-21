@@ -21,7 +21,7 @@ import java.time.Instant
 )
 class Order private constructor(
     @Id
-    @Column(length = 36)
+    @Column(length = 50)
     val id: String,
 
     @Column(nullable = false, length = 50)
