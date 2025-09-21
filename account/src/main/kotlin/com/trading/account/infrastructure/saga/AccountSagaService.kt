@@ -214,7 +214,7 @@ class AccountSagaService(
                 event.sagaId, event.orderId, event.userId
             )
             true
-        } catch (e: Exception) {2
+        } catch (e: Exception) {
             logger.error("Failed to handle order cancellation compensation for sagaId: {}", event.sagaId, e)
             false
         }
