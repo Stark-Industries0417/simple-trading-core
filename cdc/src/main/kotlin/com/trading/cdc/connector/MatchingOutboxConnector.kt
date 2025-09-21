@@ -178,7 +178,6 @@ class MatchingOutboxConnector(
     }
 
     private fun mapToMatchingFailedDto(record: Struct): MatchingFailedDto {
-        // Helper functions (reuse from mapToMatchingCreatedDto)
         fun extractBigDecimal(fieldName: String): BigDecimal {
             return try {
                 val value = record.getString(fieldName)
@@ -222,8 +221,9 @@ class MatchingOutboxConnector(
             buyUserId = record.getString("buy_user_id"),
             sellUserId = record.getString("sell_user_id"),
             symbol = record.getString("symbol"),
-            matchedQuantity = extractBigDecimal("matched_quantity"),
-            matchedPrice = extractNullableBigDecimal("matched_price"),
+            quantity = extractBigDecimal("matched_quantity"),
+            price = extractNullableBigDecimal("matched_price"),
+            tradeId = record.getString("trade_id"),
             status = record.getString("status"),
             processedAt = extractNullableString("processed_at"),
             errorMessage = extractNullableString("error_message"),

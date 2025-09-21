@@ -1,15 +1,12 @@
 package com.trading.account.infrastructure.scheduler
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.trading.account.domain.saga.AccountSagaRepository
 import com.trading.account.domain.saga.AccountSagaState
 import com.trading.common.domain.saga.SagaStatus
-import com.trading.common.event.saga.AccountUpdateFailedEvent
-import com.trading.common.event.saga.SagaTimeoutEvent
-import com.trading.common.util.UUIDv7Generator
+import com.trading.account.infrastructure.outbox.AccountOutboxEvent
+import com.trading.account.infrastructure.outbox.AccountOutboxRepository
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
@@ -18,9 +15,8 @@ import java.time.Instant
 @Component
 class AccountSagaTimeoutScheduler(
     private val sagaRepository: AccountSagaRepository,
-    private val kafkaTemplate: KafkaTemplate<String, String>,
+    private val accountOutboxRepository: AccountOutboxRepository,
     private val objectMapper: ObjectMapper,
-    private val uuidGenerator: UUIDv7Generator,
     @Value("\${saga.timeouts.account:5}") private val accountTimeoutSeconds: Long = 5
 ) {
     
@@ -44,7 +40,6 @@ class AccountSagaTimeoutScheduler(
         saga.markTimeout()
         sagaRepository.save(saga)
         
-        // eventPayload에서 원본 이벤트 정보 추출
         val originalEventJson = saga.eventPayload
         val originalEvent = try {
             objectMapper.readTree(originalEventJson)
@@ -56,51 +51,22 @@ class AccountSagaTimeoutScheduler(
         val sellUserId = originalEvent.get("sellUserId")?.asText()
         val symbol = originalEvent.get("symbol")?.asText() ?: ""
         
-        // Publish AccountUpdateFailedEvent for saga compensation
-        val failedEvent = AccountUpdateFailedEvent(
-            eventId = uuidGenerator.generateEventId(),
-            aggregateId = saga.tradeId,
-            occurredAt = Instant.now(),
-            traceId = "",
+        val quantity = originalEvent.get("quantity")?.decimalValue() ?: java.math.BigDecimal.ZERO
+        val price = originalEvent.get("price")?.decimalValue() ?: java.math.BigDecimal.ZERO
+
+        val outboxEvent = AccountOutboxEvent.createAccountUpdateFailedEvent(
             sagaId = saga.sagaId,
             tradeId = saga.tradeId,
             orderId = saga.orderId,
-            buyUserId = buyUserId,
-            sellUserId = sellUserId,
+            buyUserId = buyUserId ?: "",
+            sellUserId = sellUserId ?: "",
+            symbol = symbol,
+            amount = price * quantity,
+            quantity = quantity,
             reason = "Account update timeout after $accountTimeoutSeconds seconds",
-            failureType = AccountUpdateFailedEvent.FailureType.TECHNICAL_ERROR,
+            failureType = "TIMEOUT",
             shouldRetry = true
         )
-
-        val timeoutEventNode = objectMapper.createObjectNode()
-        timeoutEventNode.put("eventType", "AccountUpdateFailed")
-        timeoutEventNode.put("sagaId", saga.sagaId)
-        val failedEventNode = objectMapper.valueToTree<ObjectNode>(failedEvent)
-        timeoutEventNode.setAll<ObjectNode>(failedEventNode)
-        
-        kafkaTemplate.send(
-            "account.events",
-            symbol,
-            objectMapper.writeValueAsString(timeoutEventNode)
-        )
-
-        // Publish SagaTimeoutEvent for monitoring
-        val timeoutEvent = SagaTimeoutEvent(
-            eventId = uuidGenerator.generateEventId(),
-            aggregateId = saga.orderId,
-            occurredAt = Instant.now(),
-            traceId = "",
-            sagaId = saga.sagaId,
-            orderId = saga.orderId,
-            tradeId = saga.tradeId,
-            failedAt = "Account",
-            timeoutDuration = accountTimeoutSeconds
-        )
-
-        kafkaTemplate.send(
-            "saga.timeout.events",
-            saga.orderId,
-            objectMapper.writeValueAsString(timeoutEvent)
-        )
+        accountOutboxRepository.save(outboxEvent)
     }
 }

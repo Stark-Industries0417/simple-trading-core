@@ -3,7 +3,6 @@ package com.trading.order.infrastructure.web
 import com.trading.common.exception.account.InsufficientBalanceException
 import com.trading.common.exception.base.BusinessException
 import com.trading.common.exception.order.*
-import com.trading.order.application.OrderMetrics
 import com.trading.order.infrastructure.web.dto.ErrorResponse
 import jakarta.servlet.http.HttpServletRequest
 import org.slf4j.MDC
@@ -16,9 +15,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice
 
 
 @RestControllerAdvice
-class OrderExceptionHandler(
-    private val orderMetrics: OrderMetrics
-) {
+class OrderExceptionHandler {
     
     @ExceptionHandler(MethodArgumentNotValidException::class)
     fun handleValidationException(
@@ -46,7 +43,6 @@ class OrderExceptionHandler(
         request: HttpServletRequest
     ): ResponseEntity<ErrorResponse> {
         
-        orderMetrics.incrementValidationFailures()
         val traceId = MDC.get("traceId")
         
         val violations = ex.context["validationErrors"] as? List<String> ?: emptyList()
@@ -104,7 +100,6 @@ class OrderExceptionHandler(
         request: HttpServletRequest
     ): ResponseEntity<ErrorResponse> {
         
-        orderMetrics.incrementDatabaseErrors()
         val traceId = MDC.get("traceId")
         
         val errorResponse = ErrorResponse(
@@ -141,7 +136,6 @@ class OrderExceptionHandler(
         request: HttpServletRequest
     ): ResponseEntity<ErrorResponse> {
         
-        orderMetrics.incrementUnexpectedErrors()
         val traceId = MDC.get("traceId")
         
         val errorResponse = ErrorResponse(
@@ -196,7 +190,6 @@ class OrderExceptionHandler(
         request: HttpServletRequest
     ): ResponseEntity<ErrorResponse> {
         
-        orderMetrics.incrementUnexpectedErrors()
         val traceId = MDC.get("traceId")
         
         val errorResponse = ErrorResponse.internalError(

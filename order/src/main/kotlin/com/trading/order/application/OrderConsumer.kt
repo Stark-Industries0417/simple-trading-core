@@ -1,17 +1,12 @@
 package com.trading.order.application
 
 import com.trading.common.dto.order.OrderStatus
-import com.trading.common.event.saga.AccountUpdatedEvent
-import com.trading.common.event.saga.AccountUpdateFailedEvent
+import com.trading.common.dto.cdc.account.AccountUpdatedDto
+import com.trading.common.dto.cdc.account.AccountUpdateFailedDto
 import com.trading.order.domain.OrderRepository
 import com.trading.order.infrastructure.outbox.OrderOutboxRepository
-import com.trading.common.domain.saga.SagaStatus
-import com.trading.order.domain.saga.OrderSagaRepository
-import com.trading.order.domain.saga.OrderSagaState
 import com.fasterxml.jackson.databind.ObjectMapper
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.kafka.annotation.KafkaListener
-import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -21,9 +16,7 @@ import java.time.Instant
 class OrderConsumer(
     private val orderRepository: OrderRepository,
     private val outboxRepository: OrderOutboxRepository,
-    private val sagaRepository: OrderSagaRepository,
-    private val objectMapper: ObjectMapper,
-    @Value("\${saga.timeouts.order:30}") private val orderTimeoutSeconds: Long = 30
+    private val objectMapper: ObjectMapper
 ) {
     
     @KafkaListener(topics = ["account.events"], groupId = "order-saga-group")
@@ -34,11 +27,11 @@ class OrderConsumer(
             
             when (eventType) {
                 "AccountUpdated" -> {
-                    val event = objectMapper.readValue(message, AccountUpdatedEvent::class.java)
+                    val event = objectMapper.readValue(message, AccountUpdatedDto::class.java)
                     completeOrder(event)
                 }
                 "AccountUpdateFailed" -> {
-                    val event = objectMapper.readValue(message, AccountUpdateFailedEvent::class.java)
+                    val event = objectMapper.readValue(message, AccountUpdateFailedDto::class.java)
                     cancelOrder(event)
                 }
             }
@@ -47,7 +40,7 @@ class OrderConsumer(
         }
     }
     
-    private fun completeOrder(event: AccountUpdatedEvent) {
+    private fun completeOrder(event: AccountUpdatedDto) {
         val order = orderRepository.findById(event.orderId).orElse(null)
         if (order == null) return
 
@@ -56,56 +49,20 @@ class OrderConsumer(
         order.filledAt = Instant.now()
         orderRepository.save(order)
 
-        sagaRepository.findBySagaId(event.sagaId)?.let { sagaState ->
-            sagaState.markCompleted()
-            sagaRepository.save(sagaState)
-        }
-
-        // Outbox status update removed - handled by CDC
+        // Saga state and Outbox status updates are handled by CDC
         
     }
     
-    private fun cancelOrder(event: AccountUpdateFailedEvent) {
+    private fun cancelOrder(event: AccountUpdateFailedDto) {
         val order = orderRepository.findById(event.orderId).orElse(null)
         if (order == null) return
 
         order.cancel(event.reason)
         orderRepository.save(order)
 
-        sagaRepository.findBySagaId(event.sagaId)?.let { sagaState ->
-            sagaState.markFailed(event.reason)
-            sagaRepository.save(sagaState)
-        }
-
-        // Outbox status update removed - handled by CDC
+        // Saga state and Outbox status updates are handled by CDC
         
     }
     
-    @Scheduled(fixedDelay = 5000)
-    fun checkTimeouts() {
-        val timedOutSagas = sagaRepository.findTimedOutSagas(
-            states = listOf(SagaStatus.STARTED, SagaStatus.IN_PROGRESS),
-            now = Instant.now()
-        )
-
-        timedOutSagas.forEach { saga ->
-            try {
-                handleSagaTimeout(saga)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
-    
-    private fun handleSagaTimeout(saga: OrderSagaState) {
-        saga.markTimeout()
-        sagaRepository.save(saga)
-        
-        val order = orderRepository.findById(saga.orderId).orElse(null)
-        if (order != null && order.status == OrderStatus.CREATED) {
-            order.status = OrderStatus.TIMEOUT
-            order.cancellationReason = "Saga timeout after $orderTimeoutSeconds seconds"
-            orderRepository.save(order)
-        }
-    }
+    // Timeout handling moved to separate scheduler component
 }
