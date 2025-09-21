@@ -15,7 +15,6 @@ import java.time.Instant
         Index(name = "idx_order_outbox_saga", columnList = "sagaId"),
         Index(name = "idx_order_outbox_created", columnList = "createdAt"),
         Index(name = "idx_order_outbox_order", columnList = "orderId"),
-        Index(name = "idx_order_outbox_partition", columnList = "partitionKey")
     ]
 )
 class OrderOutboxEvent(

@@ -16,7 +16,6 @@ import java.time.Instant
     indexes = [
         Index(name = "idx_user_created", columnList = "userId,createdAt"),
         Index(name = "idx_symbol_status", columnList = "symbol,status"),
-        Index(name = "idx_trace_id", columnList = "traceId"),
         Index(name = "idx_created_at", columnList = "createdAt")
     ]
 )
@@ -24,46 +23,46 @@ class Order private constructor(
     @Id
     @Column(length = 36)
     val id: String,
-    
+
     @Column(nullable = false, length = 50)
     val userId: String,
-    
+
     @Column(nullable = false, length = 20)
     val symbol: String,
-    
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     val orderType: OrderType,
-    
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 4)
     val side: OrderSide,
-    
+
     @Column(nullable = false, precision = 19, scale = 8)
     val quantity: BigDecimal,
-    
+
     @Column(precision = 19, scale = 2)
     val price: BigDecimal?,
-    
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     var status: OrderStatus = OrderStatus.CREATED,
-    
+
     @Column(nullable = false)
     val createdAt: Instant = Instant.now(),
-    
+
     @Column(nullable = false)
     var updatedAt: Instant = Instant.now(),
-    
+
     @Version
     var version: Long = 0,
-    
+
     @Column(precision = 19, scale = 8)
     var filledQuantity: BigDecimal = BigDecimal.ZERO,
-    
+
     @Column(length = 500)
     var cancellationReason: String? = null,
-    
+
     @Column
     var filledAt: Instant? = null
 ) {
@@ -85,7 +84,7 @@ class Order private constructor(
                 requireNotNull(price) { "Price is required for LIMIT orders" }
                 require(price > BigDecimal.ZERO) { "Price must be positive" }
             }
-            
+
             return Order(
                 id = uuidGenerator.generateOrderId(),
                 userId = userId,
@@ -97,7 +96,7 @@ class Order private constructor(
             )
         }
     }
-    
+
     fun cancel(reason: String = "User cancelled"): Order =
         try {
             require(canBeCancelled()) {
@@ -113,19 +112,19 @@ class Order private constructor(
                 ex.message ?: "Cannot cancel order in current state", ex
             ).withContext("orderId", id).withContext("currentStatus", status.name)
         }
-    
+
     fun reject(reason: String): Order {
-        require(status == OrderStatus.PENDING) { 
-            "Only pending orders can be rejected" 
+        require(status == OrderStatus.PENDING) {
+            "Only pending orders can be rejected"
         }
-        
+
         return this.apply {
             status = OrderStatus.REJECTED
             updatedAt = Instant.now()
             cancellationReason = reason
         }
     }
-    
+
     fun partialFill(executedQuantity: BigDecimal): Order {
         require(status in listOf(OrderStatus.PENDING, OrderStatus.PARTIALLY_FILLED)) {
             "Order not in fillable state: $status"
@@ -136,7 +135,7 @@ class Order private constructor(
         require(filledQuantity + executedQuantity <= quantity) {
             "Executed quantity would exceed order quantity"
         }
-        
+
         return this.apply {
             filledQuantity = filledQuantity + executedQuantity
             status = if (filledQuantity == quantity) {
@@ -147,23 +146,23 @@ class Order private constructor(
             updatedAt = Instant.now()
         }
     }
-    
+
     fun completeFill(): Order {
         require(status in listOf(OrderStatus.PENDING, OrderStatus.PARTIALLY_FILLED)) {
             "Order not in fillable state: $status"
         }
-        
+
         return this.apply {
             filledQuantity = quantity
             status = OrderStatus.FILLED
             updatedAt = Instant.now()
         }
     }
-    
+
     fun getRemainingQuantity(): BigDecimal {
         return quantity - filledQuantity
     }
-    
+
     fun getFillRatio(): BigDecimal {
         return if (quantity == BigDecimal.ZERO) {
             BigDecimal.ZERO
@@ -171,29 +170,29 @@ class Order private constructor(
             filledQuantity.divide(quantity, 4, BigDecimal.ROUND_HALF_UP)
         }
     }
-    
+
     fun isFillable(): Boolean {
         return status in setOf(OrderStatus.PENDING, OrderStatus.PARTIALLY_FILLED)
     }
-    
+
     private fun canBeCancelled(): Boolean {
         return status in setOf(OrderStatus.PENDING, OrderStatus.PARTIALLY_FILLED)
     }
-    
+
     fun isActive(): Boolean {
         return status in setOf(OrderStatus.PENDING, OrderStatus.PARTIALLY_FILLED)
     }
-    
+
     fun isCompleted(): Boolean {
         return status in setOf(OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED)
     }
-    
+
     fun isMarketOrder(): Boolean = orderType == OrderType.MARKET
-    
+
     fun isLimitOrder(): Boolean = orderType == OrderType.LIMIT
-    
+
     fun isBuyOrder(): Boolean = side == OrderSide.BUY
-    
+
     fun isSellOrder(): Boolean = side == OrderSide.SELL
 
     fun toOutboxEvent(
@@ -231,11 +230,11 @@ class Order private constructor(
         if (other !is Order) return false
         return id == other.id
     }
-    
+
     override fun hashCode(): Int {
         return id.hashCode()
     }
-    
+
     override fun toString(): String {
         return "Order(id='$id', userId='$userId', symbol='$symbol', type=$orderType, " +
                 "side=$side, quantity=$quantity, price=$price, status=$status, " +
