@@ -1,8 +1,8 @@
 package com.trading.cdc.config
 
+import com.trading.cdc.connector.AccountOutboxConnector
 import com.trading.cdc.connector.MatchingOutboxConnector
 import com.trading.cdc.connector.OrderOutboxConnector
-import com.trading.cdc.connector.OrderSagaConnector
 import io.debezium.config.Configuration
 import io.debezium.embedded.Connect
 import io.debezium.engine.DebeziumEngine
@@ -20,7 +20,8 @@ import java.util.*
 class DebeziumConfig(
     private val cdcProperties: CdcProperties,
     private val orderOutboxConnector: OrderOutboxConnector,
-    private val matchingOutboxConnector: MatchingOutboxConnector
+    private val matchingOutboxConnector: MatchingOutboxConnector,
+    private val accountOutboxConnector: AccountOutboxConnector
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -32,22 +33,27 @@ class DebeziumConfig(
             put("offset.storage", "org.apache.kafka.connect.storage.FileOffsetBackingStore")
             put("offset.storage.file.filename", cdcProperties.debezium.offsetStorageFileName)
             put("offset.flush.interval.ms", cdcProperties.debezium.offsetFlushIntervalMs.toString())
-            
+
             put("database.hostname", cdcProperties.database.hostname)
             put("database.port", cdcProperties.database.port.toString())
             put("database.user", cdcProperties.database.username)
             put("database.password", cdcProperties.database.password)
             put("database.dbname", cdcProperties.database.name)
             put("database.server.name", cdcProperties.debezium.serverName)
+            put("database.server.id", cdcProperties.debezium.serverId)
+            put("topic.prefix", cdcProperties.debezium.serverName)
             
             put("table.include.list",
                 "${cdcProperties.database.name}.order_saga_states," +
                 "${cdcProperties.database.name}.order_outbox_events," +
-                "${cdcProperties.database.name}.matching_outbox_events"
+                "${cdcProperties.database.name}.matching_outbox_events," +
+                "${cdcProperties.database.name}.account_outbox_events"
             )
-            
-            put("database.history", "io.debezium.relational.history.FileDatabaseHistory")
-            put("database.history.file.filename", "/tmp/dbhistory.dat")
+
+            // Schema History Configuration using Kafka
+            put("schema.history.internal", "io.debezium.storage.kafka.history.KafkaSchemaHistory")
+            put("schema.history.internal.kafka.bootstrap.servers", cdcProperties.kafka.bootstrapServers)
+            put("schema.history.internal.kafka.topic", cdcProperties.kafka.schemaHistoryTopic)
             
             put("snapshot.mode", cdcProperties.debezium.snapshotMode)
             put("poll.interval.ms", cdcProperties.debezium.pollIntervalMs.toString())
@@ -101,20 +107,21 @@ class DebeziumConfig(
 
             when (operation) {
                 "c", "u" -> {
-                    val after = value.getStruct("after")
-                    if (after != null) {
-                        when (table) {
-                            "order_outbox_events" -> {
-                                logger.info("Processing order_outbox_events INSERT/UPDATE")
-                                orderOutboxConnector.processEvent(after)
-                            }
-                            "matching_outbox_events" -> {
-                                logger.info("Processing matching_outbox_events INSERT/UPDATE")
-                                matchingOutboxConnector.processEvent(after)
-                            }
-                            else -> {
-                                logger.debug("Unknown table: $table, skipping")
-                            }
+                    when (table) {
+                        "order_outbox_events" -> {
+                            logger.info("Processing order_outbox_events $operation")
+                            orderOutboxConnector.processEvent(value)
+                        }
+                        "matching_outbox_events" -> {
+                            logger.info("Processing matching_outbox_events $operation")
+                            matchingOutboxConnector.processEvent(value)
+                        }
+                        "account_outbox_events" -> {
+                            logger.info("Processing account_outbox_events $operation")
+                            accountOutboxConnector.processEvent(value)
+                        }
+                        else -> {
+                            logger.debug("Unknown table: $table, skipping")
                         }
                     }
                 }

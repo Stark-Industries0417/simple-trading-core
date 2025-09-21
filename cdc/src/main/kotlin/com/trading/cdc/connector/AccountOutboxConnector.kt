@@ -21,43 +21,41 @@ class AccountOutboxConnector(
 
     override fun processEvent(record: Struct) {
         try {
-            val operation = extractOperation(record)
+            val operation = record.getString("op")
+            val after = record.getStruct("after")
+
+            if (after == null) {
+                logger.debug("No 'after' data in record")
+                return
+            }
+
+            val eventType = after.getString("event_type")
+            val status = after.getString("status")
+
+            logger.info("Processing account outbox event: operation=$operation, eventType=$eventType, status=$status")
 
             when (operation) {
                 "c" -> {
-                    val after = record.getStruct("after")
-                    val eventType = after.getString("event_type")
-
-                    val status = after.getString("status")
-                    if (status != "PENDING") {
-                        logger.debug("Skipping non-pending event: $eventType with status: $status")
-                        return
-                    }
-
-                    when (eventType) {
-                        EventTypes.Account.UPDATED -> processAccountUpdatedEvent(after)
-                        EventTypes.Account.ROLLBACK -> processAccountRollbackEvent(after)
-                        EventTypes.Account.RESERVATION_FAILED -> processAccountReservationFailedEvent(after)
-                        else -> logger.warn("Unknown event type: $eventType")
+                    // New event inserted - process if PENDING
+                    if (status == "PENDING") {
+                        when (eventType) {
+                            EventTypes.Account.UPDATED -> processAccountUpdatedEvent(after)
+                            EventTypes.Account.ROLLBACK -> processAccountRollbackEvent(after)
+                            EventTypes.Account.RESERVATION_FAILED -> processAccountReservationFailedEvent(after)
+                            EventTypes.Account.UPDATE_FAILED -> processAccountUpdateFailedEvent(after)
+                            else -> logger.warn("Unknown event type: $eventType")
+                        }
                     }
                 }
                 "u" -> {
-                    val after = record.getStruct("after")
-                    val eventType = after.getString("event_type")
-                    val status = after.getString("status")
-
+                    // Event updated - process if status changed to FAILED
                     if (status == "FAILED" && eventType == EventTypes.Account.UPDATE_FAILED) {
                         logger.info("Processing FAILED status update for saga: {}", after.getString("saga_id"))
                         processAccountUpdateFailedEvent(after)
-                    } else {
-                        logger.debug("Ignoring status update to: {} for event type: {}", status, eventType)
                     }
                 }
-                "d" -> {
-                    logger.debug("Delete operation ignored for account outbox")
-                }
                 else -> {
-                    logger.warn("Unknown operation: $operation")
+                    logger.debug("Ignoring operation: $operation")
                 }
             }
         } catch (e: Exception) {
@@ -306,9 +304,6 @@ class AccountOutboxConnector(
         )
     }
 
-    private fun extractOperation(record: Struct): String {
-        return record.getString("op")
-    }
 
     override fun getConnectorName(): String {
         return "AccountOutboxConnector"

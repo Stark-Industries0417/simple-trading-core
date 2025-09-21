@@ -47,9 +47,23 @@ class OrderOutboxConnector(
         logger.info("OrderOutboxConnector initialized with Kafka broker: ${cdcProperties.kafka.bootstrapServers}")
     }
     
-    override fun processEvent(outboxRecord: Struct) {
+    override fun processEvent(record: Struct) {
         try {
-            val outboxEvent = mapToOrderOutboxEvent(outboxRecord)
+            val operation = record.getString("op")
+
+            // Only process insert and update operations
+            if (operation != "c" && operation != "u") {
+                logger.debug("Skipping operation: $operation")
+                return
+            }
+
+            val after = record.getStruct("after")
+            if (after == null) {
+                logger.debug("No 'after' data in record")
+                return
+            }
+
+            val outboxEvent = mapToOrderOutboxEvent(after)
 
             val topic = determineTopicForEventType(outboxEvent.eventType)
 
@@ -89,7 +103,7 @@ class OrderOutboxConnector(
             OrderType.MARKET
         }
 
-        val orderSideStr = record.getString("order_side")
+        val orderSideStr = record.getString("side")
         val orderSide = try {
             OrderSide.valueOf(orderSideStr.uppercase())
         } catch (e: Exception) {

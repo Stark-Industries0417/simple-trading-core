@@ -24,6 +24,7 @@ data class KafkaProperties(
 )
 
 data class DebeziumProperties(
+    val serverId: String = "184054",
     val serverName: String = "order-service",
     val offsetStorageFileName: String = "/tmp/offsets.dat",
     val offsetFlushIntervalMs: Long = 1000,

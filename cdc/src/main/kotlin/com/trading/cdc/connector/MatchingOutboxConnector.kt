@@ -22,47 +22,44 @@ class MatchingOutboxConnector(
 
     override fun processEvent(record: Struct) {
         try {
-            val operation = extractOperation(record)
+            val operation = record.getString("op")
+            val after = record.getStruct("after")
+
+            if (after == null) {
+                logger.debug("No 'after' data in record")
+                return
+            }
+
+            val eventType = after.getString("event_type")
+            val status = after.getString("status")
+
+            logger.info("Processing matching outbox event: operation=$operation, eventType=$eventType, status=$status")
 
             when (operation) {
-                "c"-> {
-                    val after = record.getStruct("after")
-                    val eventType = after.getString("event_type")
-
-                    val status = after.getString("status")
-                    if (status != "PENDING") {
-                        logger.debug("Skipping non-pending event: $eventType with status: $status")
-                        return
-                    }
-
-                    when (eventType) {
-                        EventTypes.Trade.CREATED -> processTradeCreatedEvent(after)
-                        EventTypes.Trade.NO_MATCH -> processTradeNoMatchEvent(after)
-                        else -> logger.warn("Unknown event type: $eventType")
+                "c" -> {
+                    // New event inserted - process if PENDING
+                    if (status == "PENDING") {
+                        when (eventType) {
+                            EventTypes.Trade.CREATED -> processTradeCreatedEvent(after)
+                            EventTypes.Trade.NO_MATCH -> processTradeNoMatchEvent(after)
+                            EventTypes.Trade.FAILED -> processTradeFailedEvent(after)
+                            else -> logger.warn("Unknown event type: $eventType")
+                        }
                     }
                 }
                 "u" -> {
-                    val after = record.getStruct("after")
-                    val eventType = after.getString("event_type")
-                    val status = after.getString("status")
-
+                    // Event updated - process if status changed to FAILED
                     if (status == "FAILED" && eventType == EventTypes.Trade.FAILED) {
                         logger.info("Processing FAILED status update for saga: {}", after.getString("saga_id"))
                         processTradeFailedEvent(after)
-                    } else {
-                        logger.debug("Ignoring status update to: {} for event type: {}", status, eventType)
                     }
                 }
-                "d" -> {
-                    logger.debug("Delete operation ignored for matching outbox")
-                }
                 else -> {
-                    logger.warn("Unknown operation: $operation")
+                    logger.debug("Ignoring operation: $operation")
                 }
             }
         } catch (e: Exception) {
-            logger.error("Failed to process matching outbox event", e)
-            throw e
+            logger.error("Failed to process matching outbox event: ${e.message}", e)
         }
     }
 
@@ -167,8 +164,8 @@ class MatchingOutboxConnector(
             buyUserId = record.getString("buy_user_id"),
             sellUserId = record.getString("sell_user_id"),
             symbol = record.getString("symbol"),
-            quantity = extractBigDecimal("matched_quantity"),
-            price = extractNullableBigDecimal("matched_price"),
+            quantity = extractBigDecimal("quantity"),
+            price = extractNullableBigDecimal("price"),
             status = record.getString("status"),
             processedAt = extractNullableString("processed_at"),
             errorMessage = extractNullableString("error_message"),
@@ -221,8 +218,8 @@ class MatchingOutboxConnector(
             buyUserId = record.getString("buy_user_id"),
             sellUserId = record.getString("sell_user_id"),
             symbol = record.getString("symbol"),
-            quantity = extractBigDecimal("matched_quantity"),
-            price = extractNullableBigDecimal("matched_price"),
+            quantity = extractBigDecimal("quantity"),
+            price = extractNullableBigDecimal("price"),
             tradeId = record.getString("trade_id"),
             status = record.getString("status"),
             processedAt = extractNullableString("processed_at"),
@@ -272,8 +269,8 @@ class MatchingOutboxConnector(
             symbol = record.getString("symbol"),
             orderType = "LIMIT", // NO_MATCH는 지정가 주문에만 발생
             side = side,
-            quantity = extractBigDecimal("matched_quantity"),
-            price = extractNullableBigDecimal("matched_price") ?: BigDecimal.ZERO,
+            quantity = extractBigDecimal("quantity"),
+            price = extractNullableBigDecimal("price") ?: BigDecimal.ZERO,
             status = record.getString("status"),
             processedAt = extractNullableString("processed_at"),
             createdAt = record.getString("created_at"),
@@ -281,9 +278,6 @@ class MatchingOutboxConnector(
         )
     }
 
-    private fun extractOperation(record: Struct): String {
-        return record.getString("op")
-    }
 
     override fun getConnectorName(): String {
         return "MatchingOutboxConnector"
