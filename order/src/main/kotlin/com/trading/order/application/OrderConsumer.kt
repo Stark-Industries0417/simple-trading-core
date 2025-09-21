@@ -5,7 +5,6 @@ import com.trading.common.event.saga.AccountUpdatedEvent
 import com.trading.common.event.saga.AccountUpdateFailedEvent
 import com.trading.order.domain.OrderRepository
 import com.trading.order.infrastructure.outbox.OrderOutboxRepository
-import com.trading.common.outbox.OutboxStatus
 import com.trading.common.domain.saga.SagaStatus
 import com.trading.order.domain.saga.OrderSagaRepository
 import com.trading.order.domain.saga.OrderSagaState
@@ -19,7 +18,7 @@ import java.time.Instant
 
 @Component
 @Transactional
-class SagaEventListener(
+class OrderConsumer(
     private val orderRepository: OrderRepository,
     private val outboxRepository: OrderOutboxRepository,
     private val sagaRepository: OrderSagaRepository,
@@ -62,13 +61,7 @@ class SagaEventListener(
             sagaRepository.save(sagaState)
         }
 
-        outboxRepository.findBySagaId(event.sagaId)?.let { outboxEvent ->
-            outboxRepository.updateStatus(
-                eventId = outboxEvent.eventId,
-                status = OutboxStatus.PROCESSED,
-                processedAt = Instant.now()
-            )
-        }
+        // Outbox status update removed - handled by CDC
         
     }
     
@@ -84,13 +77,7 @@ class SagaEventListener(
             sagaRepository.save(sagaState)
         }
 
-        outboxRepository.findBySagaId(event.sagaId)?.let { outboxEvent ->
-            outboxRepository.updateStatus(
-                eventId = outboxEvent.eventId,
-                status = OutboxStatus.FAILED,
-                processedAt = Instant.now()
-            )
-        }
+        // Outbox status update removed - handled by CDC
         
     }
     
