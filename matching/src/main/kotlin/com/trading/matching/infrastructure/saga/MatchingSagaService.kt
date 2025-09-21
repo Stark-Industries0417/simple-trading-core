@@ -33,8 +33,8 @@ class MatchingSagaService(
     private val logger = LoggerFactory.getLogger(MatchingSagaService::class.java)
 
     @KafkaListener(
-        topics = ["#{@kafkaProperties.topics.orderEvents}"],
-        groupId = "#{@kafkaProperties.consumer.groupId}",
+        topics = ["#{@matchingKafkaProperties.topics.orderEvents}"],
+        groupId = "#{@matchingKafkaProperties.consumer.groupId}",
         containerFactory = "kafkaListenerContainerFactory"
     )
     fun handleOrderEvent(
@@ -133,7 +133,8 @@ class MatchingSagaService(
                             userId = event.userId,
                             symbol = event.symbol,
                             orderQuantity = event.quantity,
-                            orderPrice = event.price ?: BigDecimal.ZERO
+                            orderPrice = event.price ?: BigDecimal.ZERO,
+                            tradeId = pendingMatching.tradeId,
                         )
                         matchingOutboxRepository.save(noMatchEvent)
 

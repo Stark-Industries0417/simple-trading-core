@@ -20,8 +20,8 @@ class MatchingEventStatusUpdater(
 
 
     @KafkaListener(
-        topics = ["#{@kafkaProperties.topics.tradeEvents}"],
-        groupId = "#{@kafkaProperties.updateStatus.groupId}"
+        topics = ["#{@matchingKafkaProperties.topics.tradeEvents}"],
+        groupId = "#{@matchingKafkaProperties.updateStatus.groupId}"
     )
     fun updateOutboxEventStatus(message: String) {
         try {
@@ -57,8 +57,8 @@ class MatchingEventStatusUpdater(
     }
 
     @KafkaListener(
-        topics = ["#{@kafkaProperties.topics.dqlTopic}"],
-        groupId = "#{@kafkaProperties.updateStatus.dlqGroupId}"
+        topics = ["#{@matchingKafkaProperties.topics.dlqTopic}"],
+        groupId = "#{@matchingKafkaProperties.updateStatus.dlqGroupId}"
     )
     fun handleDeadLetterQueue(message: String) {
         try {

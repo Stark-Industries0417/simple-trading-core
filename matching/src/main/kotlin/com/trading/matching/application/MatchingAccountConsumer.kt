@@ -20,8 +20,8 @@ class MatchingAccountConsumer(
 ) {
 
     @KafkaListener(
-        topics = ["#{@kafkaProperties.topics.accountEvents}"],
-        groupId = "#{@kafkaProperties.consumer.groupId}"
+        topics = ["#{@matchingKafkaProperties.topics.accountEvents}"],
+        groupId = "#{@matchingKafkaProperties.consumer.groupId}"
     )
     fun handleAccountEvent(message: String) {
         try {
