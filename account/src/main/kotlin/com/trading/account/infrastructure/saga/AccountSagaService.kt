@@ -236,7 +236,7 @@ class AccountSagaService(
                 "Failed to release reservation for sagaId: {}, buyOrderId: {}, sellOrderId: {}",
                 sagaId, buyOrderId, sellOrderId, e
             )
-            // 보상 실패는 로그만 남기고 계속 진행 (베스트 에포트)
+            // 보상 실패는 로그만 남기고 계속 진행 추후에 DLQ (베스트 에포트)
         }
     }
 }
