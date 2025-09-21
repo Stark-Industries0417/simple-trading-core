@@ -1,36 +1,36 @@
 package com.trading.order.application
 
-import com.trading.common.dto.order.OrderStatus
 import com.trading.common.dto.cdc.account.AccountUpdatedDto
 import com.trading.common.dto.cdc.account.AccountUpdateFailedDto
 import com.trading.order.domain.OrderRepository
-import com.trading.order.infrastructure.outbox.OrderOutboxRepository
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.trading.common.outbox.EventTypes.Account
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
-import java.time.Instant
 
 @Component
 @Transactional
 class OrderConsumer(
     private val orderRepository: OrderRepository,
-    private val outboxRepository: OrderOutboxRepository,
     private val objectMapper: ObjectMapper
 ) {
-    
-    @KafkaListener(topics = ["account.events"], groupId = "order-saga-group")
+
+    @KafkaListener(
+        topics = ["#{@kafkaProperties.topics.accountEvents}"],
+        groupId = "#{@kafkaProperties.consumer.groupId}"
+    )
     fun handleAccountEvent(message: String) {
         try {
             val jsonNode = objectMapper.readTree(message)
             val eventType = jsonNode.get("eventType")?.asText() ?: return
             
             when (eventType) {
-                "AccountUpdated" -> {
+                Account.UPDATED -> {
                     val event = objectMapper.readValue(message, AccountUpdatedDto::class.java)
                     completeOrder(event)
                 }
-                "AccountUpdateFailed" -> {
+                Account.UPDATE_FAILED -> {
                     val event = objectMapper.readValue(message, AccountUpdateFailedDto::class.java)
                     cancelOrder(event)
                 }
@@ -44,25 +44,25 @@ class OrderConsumer(
         val order = orderRepository.findById(event.orderId).orElse(null)
         if (order == null) return
 
-        order.status = OrderStatus.COMPLETED
-        order.filledQuantity = event.quantity
-        order.filledAt = Instant.now()
-        orderRepository.save(order)
+        order.partialFill(event.quantity)
+        /**
+         * if (it.status == OrderStatus.FILLED)
+         *    // 사용자에게 모든 주문 체결 알림
+         *else
+         *    // 사용자에게 지정가 체결된 거래 알림
+         */
 
-        // Saga state and Outbox status updates are handled by CDC
-        
+        orderRepository.save(order)
     }
     
     private fun cancelOrder(event: AccountUpdateFailedDto) {
+        // 지정가 취소는 체결된 거래는 유지 => 사용자에게 취소된 거래 알림
+        // 시장가 취소는 모두 취소 => 주문 취소 알림
+
         val order = orderRepository.findById(event.orderId).orElse(null)
         if (order == null) return
 
         order.cancel(event.reason)
         orderRepository.save(order)
-
-        // Saga state and Outbox status updates are handled by CDC
-        
     }
-    
-    // Timeout handling moved to separate scheduler component
 }
