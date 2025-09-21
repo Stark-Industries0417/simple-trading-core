@@ -98,6 +98,12 @@ market:
     listener:
       enabled: true  # MarketDataEventListener 활성화
 
+# 테스트용 자동 주문 생성기 설정
+test:
+  order-generator:
+    enabled: true  # 자동 주문 생성 활성화
+    interval-ms: 5000  # 5초마다 주문 생성
+
 # Trading 도메인 설정 (Order Module용)
 trading:
   # 주문 모듈 설정
