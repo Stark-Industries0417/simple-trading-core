@@ -6,9 +6,10 @@ import java.time.Instant
 
 data class OrderRejectedEvent(
     override val eventId: String,
-    override val aggregateId: String,
-    override val occurredAt: Instant,
-    override val traceId: String,
+    override val sagaId: String,
+    val aggregateId: String,
+    val occurredAt: Instant,
+    val traceId: String,
     val orderId: String,
     val userId: String,
     val symbol: String,
@@ -19,9 +20,10 @@ data class OrderRejectedEvent(
 
 data class TradeExecutedEvent(
     override val eventId: String,
-    override val aggregateId: String,
-    override val occurredAt: Instant,
-    override val traceId: String,
+    override val sagaId: String,
+    val aggregateId: String,
+    val occurredAt: Instant,
+    val traceId: String,
     val tradeId: String,
     val symbol: String,
     val buyOrderId: String,
@@ -36,9 +38,10 @@ data class TradeExecutedEvent(
 
 data class OrderPartiallyFilledEvent(
     override val eventId: String,
-    override val aggregateId: String,
-    override val occurredAt: Instant,
-    override val traceId: String,
+    override val sagaId: String,
+    val aggregateId: String,
+    val occurredAt: Instant,
+    val traceId: String,
     val orderId: String,
     val userId: String,
     val symbol: String,
@@ -50,9 +53,10 @@ data class OrderPartiallyFilledEvent(
 
 data class MatchingEngineStateChangedEvent(
     override val eventId: String,
-    override val aggregateId: String,
-    override val occurredAt: Instant,
-    override val traceId: String,
+    override val sagaId: String,
+    val aggregateId: String,
+    val occurredAt: Instant,
+    val traceId: String,
     val engineId: String,
     val previousState: String,
     val newState: String,

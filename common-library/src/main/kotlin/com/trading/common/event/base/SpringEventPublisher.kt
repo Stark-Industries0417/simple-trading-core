@@ -11,13 +11,11 @@ class SpringEventPublisher(
     private val logger = LoggerFactory.getLogger(SpringEventPublisher::class.java)
     override fun publish(event: DomainEvent) {
         try {
-            traceIdGenerator.setTraceId(event.traceId)
             logger.info(
-                "Publishing event: eventType={}, eventId={}, aggregateId={}, traceId={}",
+                "Publishing event: eventType={}, eventId={}, sagaId={}",
                 event.javaClass.simpleName,
                 event.eventId,
-                event.aggregateId,
-                event.traceId
+                event.sagaId
             )
             applicationEventPublisher.publishEvent(event)
         } catch (exception: Exception) {

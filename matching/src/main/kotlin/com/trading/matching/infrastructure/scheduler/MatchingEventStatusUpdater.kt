@@ -46,10 +46,7 @@ class MatchingEventStatusUpdater(
                     MatchingStatus.PROCESSED -> {
                         logger.debug("Event already processed: $eventId")
                     }
-                    MatchingStatus.FAILED -> {
-                        logger.warn("Processing previously failed event: $eventId")
-                        outboxEvent.markAsProcessed()
-                    }
+                    else -> logger.info("Failed Event eventId: $eventId")
                 }
                 outboxRepository.save(outboxEvent)
             }

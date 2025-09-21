@@ -5,10 +5,10 @@ import java.time.Instant
 
 data class SagaTimeoutEvent(
     override val eventId: String,
-    override val aggregateId: String,
-    override val occurredAt: Instant = Instant.now(),
-    override val traceId: String,
-    val sagaId: String,
+    override val sagaId: String,
+    val aggregateId: String,
+    val occurredAt: Instant = Instant.now(),
+    val traceId: String,
     val orderId: String,
     val tradeId: String? = null,
     val failedAt: String,
