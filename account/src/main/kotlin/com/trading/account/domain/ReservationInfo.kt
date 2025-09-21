@@ -5,14 +5,7 @@ import jakarta.persistence.*
 import java.math.BigDecimal
 import java.time.Instant
 
-/**
- * 예약 정보를 저장하는 엔티티
- * 
- * OrderCreatedEvent 처리 시 예약 정보를 저장하고,
- * TradeFailedEvent 발생 시 이 정보를 조회하여 예약을 해제한다.
- * 
- * Simple is Best: 복잡한 cross-module 의존성 대신 로컬 저장소 활용
- */
+
 @Entity
 @Table(
     name = "reservation_info",
@@ -59,9 +52,6 @@ class ReservationInfo private constructor(
     
     @Column(nullable = false)
     var updatedAt: Instant = Instant.now(),
-    
-    @Column(length = 36)
-    val traceId: String
 ) {
     companion object {
         fun createForBuyOrder(
@@ -69,10 +59,10 @@ class ReservationInfo private constructor(
             userId: String,
             symbol: String,
             quantity: BigDecimal,
-            price: BigDecimal,
-            traceId: String
+            price: BigDecimal? = null,
+            traceId: String = ""
         ): ReservationInfo {
-            val reservedAmount = price * quantity
+            val reservedAmount = price?.multiply(quantity)
             return ReservationInfo(
                 orderId = orderId,
                 userId = userId,
@@ -81,7 +71,6 @@ class ReservationInfo private constructor(
                 quantity = quantity,
                 price = price,
                 reservedAmount = reservedAmount,
-                traceId = traceId
             )
         }
         
@@ -100,7 +89,6 @@ class ReservationInfo private constructor(
                 side = OrderSide.SELL,
                 quantity = quantity,
                 price = price,
-                traceId = traceId
             )
         }
     }
