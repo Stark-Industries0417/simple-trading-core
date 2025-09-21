@@ -17,8 +17,8 @@ class OrderConsumer(
 ) {
 
     @KafkaListener(
-        topics = ["#{@kafkaProperties.topics.accountEvents}"],
-        groupId = "#{@kafkaProperties.consumer.groupId}"
+        topics = ["#{@orderKafkaProperties.topics.accountEvents}"],
+        groupId = "#{@orderKafkaProperties.consumer.groupId}"
     )
     fun handleAccountEvent(message: String) {
         try {
