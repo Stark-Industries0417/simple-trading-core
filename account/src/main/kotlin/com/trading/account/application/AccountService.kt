@@ -120,7 +120,6 @@ class AccountService(
         quantity: BigDecimal,
         price: BigDecimal,
         amount: BigDecimal, 
-        traceId: String
     ): ReservationResult {
         val account = accountRepository.findByUserIdWithLock(userId)
             ?: throw AccountNotFoundException("Account not found: $userId")
@@ -136,7 +135,6 @@ class AccountService(
                 symbol = symbol,
                 quantity = quantity,
                 price = price,
-                traceId = traceId
             )
             reservationInfoRepository.save(reservationInfo)
         }
