@@ -16,7 +16,6 @@ import java.time.Instant
         Index(name = "idx_matching_outbox_created", columnList = "createdAt"),
         Index(name = "idx_matching_outbox_trade", columnList = "tradeId"),
         Index(name = "idx_matching_outbox_status", columnList = "status"),
-        Index(name = "idx_matching_outbox_partition", columnList = "partitionKey")
     ]
 )
 class MatchingOutboxEvent(
@@ -49,6 +48,9 @@ class MatchingOutboxEvent(
     @Enumerated(EnumType.STRING)
     var status: MatchingStatus = MatchingStatus.PENDING,
 
+    @Column(nullable = false, length = 36, unique = true)
+    val tradeId: String,
+
     @Column
     var processedAt: Instant? = null,
 
@@ -76,6 +78,7 @@ class MatchingOutboxEvent(
             symbol: String,
             quantity: BigDecimal,
             price: BigDecimal,
+            tradeId: String
         ): MatchingOutboxEvent {
             return MatchingOutboxEvent(
                 sagaId = sagaId,
@@ -86,7 +89,8 @@ class MatchingOutboxEvent(
                 sellUserId = sellUserId,
                 symbol = symbol,
                 quantity = quantity,
-                price = price
+                price = price,
+                tradeId = tradeId
             )
         }
 
@@ -96,7 +100,8 @@ class MatchingOutboxEvent(
             userId: String,
             symbol: String,
             orderQuantity: BigDecimal,
-            orderPrice: BigDecimal
+            orderPrice: BigDecimal,
+            tradeId: String
         ): MatchingOutboxEvent {
             return MatchingOutboxEvent(
                 sagaId = sagaId,
@@ -108,7 +113,8 @@ class MatchingOutboxEvent(
                 symbol = symbol,
                 quantity = BigDecimal.ZERO,  // 매칭된 수량 0
                 price = orderPrice,
-                status = MatchingStatus.PROCESSED  // 처리는 완료됨
+                status = MatchingStatus.PROCESSED,  // 처리는 완료됨
+                tradeId = tradeId
             )
         }
 
@@ -121,6 +127,7 @@ class MatchingOutboxEvent(
             symbol: String,
             quantity: BigDecimal,
             price: BigDecimal? = null,
+            tradeId: String
         ): MatchingOutboxEvent {
             return MatchingOutboxEvent(
                 sagaId = sagaId,
@@ -131,7 +138,8 @@ class MatchingOutboxEvent(
                 sellUserId = sellUserId,
                 symbol = symbol,
                 quantity = quantity,
-                price = price
+                price = price,
+                tradeId = tradeId
             )
         }
     }
