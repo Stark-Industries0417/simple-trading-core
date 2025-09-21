@@ -10,10 +10,10 @@ import java.time.Instant
 @Table(
     name = "reservation_info",
     indexes = [
-        Index(name = "idx_reservation_order_id", columnList = "orderId"),
-        Index(name = "idx_reservation_user_id", columnList = "userId"),
+        Index(name = "idx_reservation_order_id", columnList = "order_id"),
+        Index(name = "idx_reservation_user_id", columnList = "user_id"),
         Index(name = "idx_reservation_status", columnList = "status"),
-        Index(name = "idx_reservation_created", columnList = "createdAt")
+        Index(name = "idx_reservation_created", columnList = "created_at")
     ]
 )
 class ReservationInfo private constructor(
