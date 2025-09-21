@@ -46,6 +46,7 @@ object EventTypes {
         const val BALANCE_RESERVED = "AccountBalanceReserved"
         const val BALANCE_RELEASED = "AccountBalanceReleased"
         const val POSITION_UPDATED = "AccountPositionUpdated"
+        const val RESERVATION_FAILED = "AccountReservationFailed"
     }
 
     /**
