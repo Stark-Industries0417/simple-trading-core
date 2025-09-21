@@ -7,6 +7,9 @@ import com.trading.common.dto.order.OrderSide
 import com.trading.common.dto.order.OrderType
 import com.trading.common.outbox.EventTypes.Order.CANCELLED
 import com.trading.common.outbox.EventTypes.Order.CREATED
+import com.trading.common.util.UUIDv7Generator
+import com.trading.matching.domain.Matching
+import com.trading.matching.domain.MatchingRepository
 import com.trading.matching.infrastructure.engine.MatchingEngineManager
 import com.trading.matching.infrastructure.outbox.MatchingOutboxEvent
 import com.trading.matching.infrastructure.outbox.MatchingOutboxRepository
@@ -23,6 +26,8 @@ import java.math.BigDecimal
 class MatchingSagaService(
     private val matchingEngineManager: MatchingEngineManager,
     private val matchingOutboxRepository: MatchingOutboxRepository,
+    private val matchingRepository: MatchingRepository,
+    private val uuidGenerator: UUIDv7Generator,
     private val objectMapper: ObjectMapper
 ) {
     private val logger = LoggerFactory.getLogger(MatchingSagaService::class.java)
@@ -102,21 +107,26 @@ class MatchingSagaService(
 
                         matchingEngineManager.removeOrderFromBook(event.orderId, event.symbol)
 
-                        val failedEvent = MatchingOutboxEvent.createMatchingFailedEvent(
-                            sagaId = event.sagaId,
-                            buyOrderId = if (event.side == OrderSide.BUY) event.orderId else "",
-                            sellOrderId = if (event.side == OrderSide.BUY) "" else event.orderId,
-                            buyUserId = if (event.side == OrderSide.BUY) event.userId else "",
-                            sellUserId = if (event.side == OrderSide.BUY) "" else event.userId,
-                            symbol = event.symbol,
-                            matchedQuantity = BigDecimal.ZERO,
-                            matchedPrice = BigDecimal.ZERO
-                        )
+                        val failedMatching = createFailedMatching(event, "No liquidity for market order")
+                        val savedFailedMatching = matchingRepository.save(failedMatching)
+
+                        val failedEvent = savedFailedMatching.toFailedOutboxEvent(sagaId = event.sagaId)
                         matchingOutboxRepository.save(failedEvent)
                     }
                     OrderType.LIMIT -> {
                         logger.info("Limit order {} placed in order book, waiting for match", event.orderId)
 
+                        val pendingMatching = Matching.create(
+                            buyOrderId = if (event.side == OrderSide.BUY) event.orderId else "",
+                            sellOrderId = if (event.side == OrderSide.BUY) "" else event.orderId,
+                            buyUserId = if (event.side == OrderSide.BUY) event.userId else "",
+                            sellUserId = if (event.side == OrderSide.BUY) "" else event.userId,
+                            symbol = event.symbol,
+                            quantity = event.quantity,
+                            price = event.price ?: BigDecimal.ZERO,
+                            uuidGenerator = uuidGenerator
+                        )
+                        matchingRepository.save(pendingMatching)
                         val noMatchEvent = MatchingOutboxEvent.createNoMatchEvent(
                             sagaId = event.sagaId,
                             orderId = event.orderId,
@@ -126,21 +136,28 @@ class MatchingSagaService(
                             orderPrice = event.price ?: BigDecimal.ZERO
                         )
                         matchingOutboxRepository.save(noMatchEvent)
+
+                        logger.debug("Saved pending limit order matching and outbox event for orderId: {}", event.orderId)
                     }
                 }
             } else {
                 trades.forEach { trade ->
-                    val outboxEvent = MatchingOutboxEvent.createMatchedEvent(
-                        sagaId = event.sagaId,
+                    val matching = Matching.create(
                         buyOrderId = trade.buyOrderId,
                         sellOrderId = trade.sellOrderId,
                         buyUserId = trade.buyUserId,
                         sellUserId = trade.sellUserId,
                         symbol = trade.symbol,
-                        matchedQuantity = trade.quantity,
-                        matchedPrice = trade.price
+                        quantity = trade.quantity,
+                        price = trade.price,
+                        uuidGenerator = uuidGenerator
                     )
+                    val savedMatching = matchingRepository.save(matching)
+
+                    val outboxEvent = savedMatching.toOutboxEvent(sagaId = event.sagaId)
                     matchingOutboxRepository.save(outboxEvent)
+
+                    logger.debug("Saved matching entity and outbox event for tradeId: {}", savedMatching.tradeId)
                 }
                 logger.info("Processed order {} with {} matches", event.orderId, trades.size)
             }
@@ -149,16 +166,10 @@ class MatchingSagaService(
             logger.error("Failed to process OrderCreatedEvent for sagaId: {}", event.sagaId, e)
 
             try {
-                val failedOutboxEvent = MatchingOutboxEvent.createMatchingFailedEvent(
-                    sagaId = event.sagaId,
-                    buyOrderId = if (event.side == OrderSide.BUY) event.orderId else "",
-                    sellOrderId = if (event.side == OrderSide.BUY) "" else event.orderId,
-                    buyUserId = if (event.side == OrderSide.BUY) event.userId else "",
-                    sellUserId = if (event.side == OrderSide.BUY) "" else event.userId,
-                    symbol = event.symbol,
-                    matchedQuantity = BigDecimal.ZERO,
-                    matchedPrice = BigDecimal.ZERO
-                )
+                val errorMatching = createFailedMatching(event, "Processing error: ${e.message}")
+                val savedMatching = matchingRepository.save(errorMatching)
+
+                val failedOutboxEvent = savedMatching.toFailedOutboxEvent(sagaId = event.sagaId)
                 matchingOutboxRepository.save(failedOutboxEvent)
                 true
             } catch (saveEx: Exception) {
@@ -170,22 +181,23 @@ class MatchingSagaService(
 
     private fun processOrderCancelledEvent(event: OrderCancelledDto): Boolean {
         return try {
-            // 주문북에서 주문 제거
             matchingEngineManager.removeOrderFromBook(
                 orderId = event.orderId,
                 symbol = event.symbol,
             )
 
-            val cancelledOutboxEvent = MatchingOutboxEvent.createMatchingFailedEvent(
-                sagaId = event.sagaId,
-                buyOrderId = if (event.side == OrderSide.BUY) event.orderId else "",
-                sellOrderId = if (event.side == OrderSide.BUY) "" else event.orderId,
-                buyUserId = if (event.side == OrderSide.BUY) event.userId else "",
-                sellUserId = if (event.side == OrderSide.BUY) "" else event.userId,
+            val cancelledMatching = createFailedMatching(
+                orderId = event.orderId,
+                userId = event.userId,
                 symbol = event.symbol,
-                matchedQuantity = BigDecimal.ZERO,
-                matchedPrice = BigDecimal.ZERO
+                side = event.side,
+                quantity = event.quantity,
+                price = event.price,
+                reason = "Order cancelled by user"
             )
+            val savedMatching = matchingRepository.save(cancelledMatching)
+
+            val cancelledOutboxEvent = savedMatching.toFailedOutboxEvent(sagaId = event.sagaId)
             matchingOutboxRepository.save(cancelledOutboxEvent)
 
             logger.debug("Successfully processed OrderCancelled event for sagaId: {}", event.sagaId)
@@ -194,5 +206,41 @@ class MatchingSagaService(
             logger.error("Failed to process OrderCancelled event for sagaId: {}", event.sagaId, e)
             false
         }
+    }
+
+
+    private fun createFailedMatching(event: OrderCreatedDto, reason: String): Matching {
+        return createFailedMatching(
+            orderId = event.orderId,
+            userId = event.userId,
+            symbol = event.symbol,
+            side = event.side,
+            quantity = event.quantity,
+            price = event.price,
+            reason = reason
+        )
+    }
+
+    private fun createFailedMatching(
+        orderId: String,
+        userId: String,
+        symbol: String,
+        side: OrderSide,
+        quantity: BigDecimal,
+        price: BigDecimal?,
+        reason: String
+    ): Matching {
+        val matching = Matching.create(
+            buyOrderId = if (side == OrderSide.BUY) orderId else "",
+            sellOrderId = if (side == OrderSide.BUY) "" else orderId,
+            buyUserId = if (side == OrderSide.BUY) userId else "",
+            sellUserId = if (side == OrderSide.BUY) "" else userId,
+            symbol = symbol,
+            quantity = quantity,
+            price = price ?: BigDecimal.ZERO,
+            uuidGenerator = uuidGenerator
+        )
+        matching.markAsFailed(reason)
+        return matching
     }
 }
