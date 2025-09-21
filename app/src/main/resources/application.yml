@@ -3,7 +3,7 @@ spring:
     name: simple-trading-core
 
   profiles:
-    active: local
+    active: local,mysql  # MySQL 프로파일 추가
 
   # 데이터소스 설정
   datasource:
