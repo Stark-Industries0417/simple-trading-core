@@ -141,6 +141,33 @@ class AccountOutboxEvent(
             )
         }
 
+        fun createAccountReservationFailedEvent(
+            sagaId: String,
+            orderId: String,
+            userId: String,
+            symbol: String = "",
+            quantity: BigDecimal = BigDecimal.ZERO,
+            reason: String,
+            failureType: String,
+            shouldRetry: Boolean = false
+        ): AccountOutboxEvent {
+            return AccountOutboxEvent(
+                sagaId = sagaId,
+                eventType = EventTypes.Account.RESERVATION_FAILED,
+                tradeId = "",  // No tradeId for reservation failures
+                orderId = orderId,
+                buyUserId = userId,
+                sellUserId = "",  // No seller for single-side reservations
+                symbol = symbol,
+                amount = BigDecimal.ZERO,  // Amount will be calculated from quantity
+                quantity = quantity,
+                reason = reason,
+                status = AccountOutboxStatus.PENDING,
+                failureType = failureType,
+                shouldRetry = shouldRetry
+            )
+        }
+
         fun createAccountRollbackEvent(
             sagaId: String,
             tradeId: String,
