@@ -40,10 +40,10 @@ class MatchingOutboxEvent(
     val symbol: String,
 
     @Column(nullable = false, precision = 19, scale = 8)
-    val matchedQuantity: BigDecimal,
+    val quantity: BigDecimal,
 
     @Column(nullable = true, precision = 19, scale = 8)
-    val matchedPrice: BigDecimal? = null,
+    val price: BigDecimal? = null,
 
     @Column(nullable = false, length = 20)
     @Enumerated(EnumType.STRING)
@@ -74,8 +74,8 @@ class MatchingOutboxEvent(
             buyUserId: String,
             sellUserId: String,
             symbol: String,
-            matchedQuantity: BigDecimal,
-            matchedPrice: BigDecimal,
+            quantity: BigDecimal,
+            price: BigDecimal,
         ): MatchingOutboxEvent {
             return MatchingOutboxEvent(
                 sagaId = sagaId,
@@ -85,8 +85,8 @@ class MatchingOutboxEvent(
                 buyUserId = buyUserId,
                 sellUserId = sellUserId,
                 symbol = symbol,
-                matchedQuantity = matchedQuantity,
-                matchedPrice = matchedPrice
+                quantity = quantity,
+                price = price
             )
         }
 
@@ -106,8 +106,8 @@ class MatchingOutboxEvent(
                 buyUserId = userId,
                 sellUserId = "",
                 symbol = symbol,
-                matchedQuantity = BigDecimal.ZERO,  // 매칭된 수량 0
-                matchedPrice = orderPrice,
+                quantity = BigDecimal.ZERO,  // 매칭된 수량 0
+                price = orderPrice,
                 status = MatchingStatus.PROCESSED  // 처리는 완료됨
             )
         }
@@ -119,8 +119,8 @@ class MatchingOutboxEvent(
             buyUserId: String,
             sellUserId: String,
             symbol: String,
-            matchedQuantity: BigDecimal,
-            matchedPrice: BigDecimal? = null,
+            quantity: BigDecimal,
+            price: BigDecimal? = null,
         ): MatchingOutboxEvent {
             return MatchingOutboxEvent(
                 sagaId = sagaId,
@@ -130,8 +130,8 @@ class MatchingOutboxEvent(
                 buyUserId = buyUserId,
                 sellUserId = sellUserId,
                 symbol = symbol,
-                matchedQuantity = matchedQuantity,
-                matchedPrice = matchedPrice
+                quantity = quantity,
+                price = price
             )
         }
     }

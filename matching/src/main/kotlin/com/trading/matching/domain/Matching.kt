@@ -165,8 +165,8 @@ class Matching private constructor(
             buyUserId = buyUserId,
             sellUserId = sellUserId,
             symbol = symbol,
-            matchedQuantity = quantity,
-            matchedPrice = price
+            quantity = quantity,
+            price = price
         )
     }
 
@@ -178,8 +178,8 @@ class Matching private constructor(
             buyUserId = buyUserId,
             sellUserId = sellUserId,
             symbol = symbol,
-            matchedQuantity = quantity,
-            matchedPrice = price
+            quantity = quantity,
+            price = price
         )
     }
 
