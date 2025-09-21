@@ -32,9 +32,9 @@ class AccountSagaService(
     private val logger = LoggerFactory.getLogger(AccountSagaService::class.java)
 
     @KafkaListener(
-        topics = ["#{@kafkaProperties.topics.orderEvents}", "#{@kafkaProperties.topics.tradeEvents}"],
-        groupId = "#{@kafkaProperties.consumer.groupId}",
-        containerFactory = "kafkaListenerContainerFactory"
+        topics = ["#{@accountKafkaProperties.topics.orderEvents}", "#{@accountKafkaProperties.topics.tradeEvents}"],
+        groupId = "#{@accountKafkaProperties.consumer.groupId}",
+        containerFactory = "accountKafkaListenerContainerFactory"
     )
     fun handleTradeEvent(
         message: String,

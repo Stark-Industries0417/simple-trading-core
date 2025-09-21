@@ -2,7 +2,7 @@ package com.trading.account.infrastructure.reconciliation
 
 import com.trading.account.application.AlertService
 import com.trading.account.infrastructure.persistence.AccountRepository
-import com.trading.account.domain.TransactionLogRepository
+import com.trading.account.infrastructure.persistence.TransactionLogRepository
 import com.trading.account.domain.TransactionType
 import com.trading.account.domain.Account
 import com.trading.account.infrastructure.monitoring.ReconciliationMetrics

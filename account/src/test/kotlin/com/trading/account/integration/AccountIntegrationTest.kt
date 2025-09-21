@@ -9,7 +9,7 @@ import com.trading.account.domain.Account
 import com.trading.account.domain.ReservationResult
 import com.trading.account.infrastructure.persistence.AccountRepository
 import com.trading.account.domain.TransactionLog
-import com.trading.account.domain.TransactionLogRepository
+import com.trading.account.infrastructure.persistence.TransactionLogRepository
 import com.trading.account.domain.TransactionType
 import com.trading.account.infrastructure.reconciliation.BalanceReconciliationScheduler
 import com.trading.common.dto.cdc.matching.MatchingCreatedDto
@@ -153,7 +153,6 @@ class AccountIntegrationTest {
             quantity = BigDecimal("10"),
             price = BigDecimal("50.00"),
             amount = BigDecimal("500.00"),
-            traceId = "trace123"
         )
         
         // Then
@@ -177,7 +176,6 @@ class AccountIntegrationTest {
             quantity = BigDecimal("10"),
             price = BigDecimal("50.00"),
             amount = BigDecimal("500.00"),
-            traceId = "trace123"
         )
         // Then
         assertThat(result).isInstanceOf(ReservationResult.InsufficientFunds::class.java)

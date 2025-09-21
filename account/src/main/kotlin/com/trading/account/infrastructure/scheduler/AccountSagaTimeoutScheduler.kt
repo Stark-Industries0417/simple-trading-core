@@ -12,8 +12,7 @@ import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
 
-@Component
-class AccountSagaTimeoutScheduler(
+open class AccountSagaTimeoutScheduler(
     private val sagaRepository: AccountSagaRepository,
     private val accountOutboxRepository: AccountOutboxRepository,
     private val objectMapper: ObjectMapper,
@@ -22,7 +21,7 @@ class AccountSagaTimeoutScheduler(
     
     @Scheduled(fixedDelay = 2000)
     @Transactional
-    fun checkTimeouts() {
+    open fun checkTimeouts() {
         val timedOutSagas = sagaRepository.findTimedOutSagas(
             listOf(SagaStatus.IN_PROGRESS),
             Instant.now()
