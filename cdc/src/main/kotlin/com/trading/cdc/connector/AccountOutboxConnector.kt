@@ -2,6 +2,7 @@ package com.trading.cdc.connector
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.trading.common.dto.cdc.account.AccountCreatedDto
+import com.trading.common.dto.cdc.account.AccountReservationFailedDto
 import com.trading.common.dto.cdc.account.AccountUpdateFailedDto
 import com.trading.common.outbox.EventTypes
 import org.apache.kafka.connect.data.Struct
@@ -36,6 +37,7 @@ class AccountOutboxConnector(
                     when (eventType) {
                         EventTypes.Account.UPDATED -> processAccountUpdatedEvent(after)
                         EventTypes.Account.ROLLBACK -> processAccountRollbackEvent(after)
+                        EventTypes.Account.RESERVATION_FAILED -> processAccountReservationFailedEvent(after)
                         else -> logger.warn("Unknown event type: $eventType")
                     }
                 }
@@ -111,6 +113,24 @@ class AccountOutboxConnector(
 
         val message = objectMapper.writeValueAsString(event)
         val partitionKey = event.symbol
+
+        kafkaTemplate.send("account.events", partitionKey, message)
+    }
+
+    private fun processAccountReservationFailedEvent(record: Struct) {
+        val event = mapToAccountReservationFailedDto(record)
+
+        logger.info(
+            "Publishing account reservation failed event - OrderId: {}, UserId: {}, Symbol: {}, FailureType: {}, Reason: {}",
+            event.orderId,
+            event.userId,
+            event.symbol,
+            event.failureType,
+            event.reason
+        )
+
+        val message = objectMapper.writeValueAsString(event)
+        val partitionKey = event.symbol.ifEmpty { "default" }  // Use default if symbol is empty
 
         kafkaTemplate.send("account.events", partitionKey, message)
     }
@@ -246,6 +266,42 @@ class AccountOutboxConnector(
             processedAt = extractNullableString("processed_at"),
             errorMessage = extractNullableString("error_message"),
             retryCount = extractInt("retry_count"),
+            createdAt = record.getString("created_at")
+        )
+    }
+
+    private fun mapToAccountReservationFailedDto(record: Struct): AccountReservationFailedDto {
+        // BigDecimal 변환 헬퍼 함수
+        fun extractBigDecimal(fieldName: String): BigDecimal {
+            return try {
+                val value = record.getString(fieldName)
+                BigDecimal(value)
+            } catch (e: Exception) {
+                logger.warn("Failed to parse $fieldName as BigDecimal, defaulting to 0")
+                BigDecimal.ZERO
+            }
+        }
+
+        // Boolean 변환 (기본값 false)
+        fun extractBoolean(fieldName: String, defaultValue: Boolean = false): Boolean {
+            return try {
+                record.getBoolean(fieldName)
+            } catch (e: Exception) {
+                defaultValue
+            }
+        }
+
+        return AccountReservationFailedDto(
+            eventId = record.getString("event_id"),
+            sagaId = record.getString("saga_id"),
+            eventType = record.getString("event_type"),
+            orderId = record.getString("order_id"),
+            userId = record.getString("buy_user_id"),  // userId is stored in buy_user_id field
+            symbol = record.getString("symbol"),
+            quantity = extractBigDecimal("quantity"),
+            failureType = record.getString("failure_type"),
+            reason = record.getString("reason") ?: "",
+            shouldRetry = extractBoolean("should_retry"),
             createdAt = record.getString("created_at")
         )
     }
