@@ -12,7 +12,7 @@ USE trading_core;
 
 -- Orders Table (matches Order.kt Entity)
 CREATE TABLE IF NOT EXISTS orders (
-    id             VARCHAR(36) PRIMARY KEY,
+    id             VARCHAR(50) PRIMARY KEY,
     user_id        VARCHAR(50)    NOT NULL,
     symbol         VARCHAR(20)    NOT NULL,
     order_type     VARCHAR(10)    NOT NULL,  -- MARKET, LIMIT
@@ -204,15 +204,13 @@ CREATE TABLE IF NOT EXISTS matching_outbox_events (
     processed_at    TIMESTAMP(6) NULL,
     error_message   VARCHAR(500) NULL,
     retry_count     INT          NOT NULL DEFAULT 0,
-    partition_key   VARCHAR(255) NULL,
     trade_id        VARCHAR(255) NULL,
     created_at      TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
 
     INDEX idx_matching_outbox_saga (saga_id),
     INDEX idx_matching_outbox_created (created_at),
     INDEX idx_matching_outbox_trade (trade_id),
-    INDEX idx_matching_outbox_status (status),
-    INDEX idx_matching_outbox_partition (partition_key)
+    INDEX idx_matching_outbox_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ========================================
