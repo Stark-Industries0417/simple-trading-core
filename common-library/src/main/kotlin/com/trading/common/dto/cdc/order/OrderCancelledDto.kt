@@ -16,7 +16,7 @@ data class OrderCancelledDto(
     val symbol: String,
     val orderType: OrderType,
     val side: OrderSide,
-    val quantity: String,
+    val quantity: BigDecimal,
     val price: BigDecimal?,
     val createdAt: String,
 ) : DomainEvent
