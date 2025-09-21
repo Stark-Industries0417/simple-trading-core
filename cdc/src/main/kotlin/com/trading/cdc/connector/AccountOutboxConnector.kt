@@ -2,6 +2,7 @@ package com.trading.cdc.connector
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.trading.common.dto.cdc.account.AccountCreatedDto
+import com.trading.common.dto.cdc.account.AccountUpdateFailedDto
 import com.trading.common.outbox.EventTypes
 import org.apache.kafka.connect.data.Struct
 import org.slf4j.LoggerFactory
@@ -34,9 +35,20 @@ class AccountOutboxConnector(
 
                     when (eventType) {
                         EventTypes.Account.UPDATED -> processAccountUpdatedEvent(after)
-                        EventTypes.Account.UPDATE_FAILED -> processAccountUpdateFailedEvent(after)
                         EventTypes.Account.ROLLBACK -> processAccountRollbackEvent(after)
                         else -> logger.warn("Unknown event type: $eventType")
+                    }
+                }
+                "u" -> {
+                    val after = record.getStruct("after")
+                    val eventType = after.getString("event_type")
+                    val status = after.getString("status")
+
+                    if (status == "FAILED" && eventType == EventTypes.Account.UPDATE_FAILED) {
+                        logger.info("Processing FAILED status update for saga: {}", after.getString("saga_id"))
+                        processAccountUpdateFailedEvent(after)
+                    } else {
+                        logger.debug("Ignoring status update to: {} for event type: {}", status, eventType)
                     }
                 }
                 "d" -> {
@@ -71,7 +83,7 @@ class AccountOutboxConnector(
     }
 
     private fun processAccountUpdateFailedEvent(record: Struct) {
-        val event = mapToAccountCreatedDto(record)
+        val event = mapToAccountUpdateFailedDto(record)
 
         logger.info(
             "Publishing account update failed event - TradeId: {}, Reason: {}, FailureType: {}",
@@ -169,6 +181,67 @@ class AccountOutboxConnector(
             reason = extractNullableString("reason"),
             shouldRetry = extractBoolean("should_retry"),
             partitionKey = record.getString("partition_key"),
+            status = record.getString("status"),
+            processedAt = extractNullableString("processed_at"),
+            errorMessage = extractNullableString("error_message"),
+            retryCount = extractInt("retry_count"),
+            createdAt = record.getString("created_at")
+        )
+    }
+
+    private fun mapToAccountUpdateFailedDto(record: Struct): AccountUpdateFailedDto {
+        // BigDecimal 변환 헬퍼 함수
+        fun extractBigDecimal(fieldName: String): BigDecimal {
+            return try {
+                val value = record.getString(fieldName)
+                BigDecimal(value)
+            } catch (e: Exception) {
+                logger.warn("Failed to parse $fieldName as BigDecimal, defaulting to 0")
+                BigDecimal.ZERO
+            }
+        }
+
+        // nullable String 변환
+        fun extractNullableString(fieldName: String): String? {
+            return try {
+                record.getString(fieldName)
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        // Integer 변환 (기본값 0)
+        fun extractInt(fieldName: String, defaultValue: Int = 0): Int {
+            return try {
+                record.getInt32(fieldName)
+            } catch (e: Exception) {
+                defaultValue
+            }
+        }
+
+        // Boolean 변환 (기본값 false)
+        fun extractBoolean(fieldName: String, defaultValue: Boolean = false): Boolean {
+            return try {
+                record.getBoolean(fieldName)
+            } catch (e: Exception) {
+                defaultValue
+            }
+        }
+
+        return AccountUpdateFailedDto(
+            eventId = record.getString("event_id"),
+            sagaId = record.getString("saga_id"),
+            eventType = record.getString("event_type"),
+            tradeId = record.getString("trade_id"),
+            orderId = record.getString("order_id"),
+            buyUserId = record.getString("buy_user_id"),
+            sellUserId = record.getString("sell_user_id"),
+            symbol = record.getString("symbol"),
+            amount = extractBigDecimal("amount"),
+            quantity = extractBigDecimal("quantity"),
+            failureType = record.getString("failure_type"),
+            reason = record.getString("reason"),
+            shouldRetry = extractBoolean("should_retry"),
             status = record.getString("status"),
             processedAt = extractNullableString("processed_at"),
             errorMessage = extractNullableString("error_message"),

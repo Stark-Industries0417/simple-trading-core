@@ -135,6 +135,7 @@ class AccountOutboxEvent(
                 amount = amount,
                 quantity = quantity,
                 reason = reason,
+                status = AccountOutboxStatus.FAILED,
                 failureType = failureType,
                 shouldRetry = shouldRetry
             )
