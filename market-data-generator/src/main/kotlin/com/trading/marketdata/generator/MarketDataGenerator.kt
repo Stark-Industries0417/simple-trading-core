@@ -129,6 +129,7 @@ class MarketDataGenerator(
 
         val event = MarketDataUpdatedEvent(
             eventId = uuidGenerator.generateEventId(),
+            sagaId = uuidGenerator.generateEventId(),  // Market data doesn't have saga, using unique ID
             aggregateId = symbol,
             occurredAt = timestamp,
             traceId = traceId,

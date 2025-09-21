@@ -3,7 +3,6 @@ package com.trading.order.domain
 import com.trading.common.dto.order.OrderStatus
 import com.trading.common.exception.order.OrderNotFoundException
 import com.trading.common.exception.order.OrderValidationException
-import com.trading.order.application.withServiceContext
 import org.springframework.stereotype.Component
 
 @Component
@@ -20,12 +19,10 @@ class OrderCancellationValidator(
 
         if (order.userId != userId) {
             throw OrderValidationException("Unauthorized to cancel this order")
-                .withServiceContext(userId, order.symbol)
         }
 
         if (order.status !in listOf(OrderStatus.CREATED, OrderStatus.PARTIALLY_FILLED)) {
             throw OrderValidationException("Order cannot be cancelled in status: ${order.status}")
-                .withServiceContext(userId, order.symbol)
         }
         
         return order
@@ -39,7 +36,6 @@ class OrderCancellationValidator(
 
         if (order.status !in listOf(OrderStatus.CREATED, OrderStatus.PARTIALLY_FILLED)) {
             throw OrderValidationException("Order cannot be cancelled in status: ${order.status}")
-                .withServiceContext(userId, order.symbol)
         }
         
         return order
