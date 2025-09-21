@@ -11,6 +11,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.ComponentScan
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories
 import org.springframework.scheduling.annotation.EnableScheduling
 
 /**
@@ -20,7 +21,7 @@ import org.springframework.scheduling.annotation.EnableScheduling
  * ApplicationEventPublisher 대신 Kafka를 통해 이벤트를 처리합니다.
  */
 @Configuration
-@ComponentScan(basePackages = ["com.trading.matching"])
+@EnableJpaRepositories(basePackages = ["com.trading.matching"])
 @EnableScheduling // TransactionalMatchingProcessor의 @Scheduled 메서드를 위해 필요
 class MatchingConfig {
     

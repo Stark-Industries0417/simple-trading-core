@@ -15,7 +15,7 @@ import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
 @Configuration
 @EnableKafka
 class KafkaConsumerConfig(
-    private val kafkaProperties: KafkaProperties
+    private val kafkaProperties: MatchingKafkaProperties
 ) {
 
     @Bean

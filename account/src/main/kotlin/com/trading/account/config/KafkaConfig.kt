@@ -15,11 +15,11 @@ import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
 @Configuration
 @EnableKafka
 class KafkaConfig(
-    private val kafkaProperties: KafkaProperties,
+    private val kafkaProperties: AccountKafkaProperties,
     private val objectMapper: ObjectMapper
 ) {
     
-    @Bean
+    @Bean(name = ["accountConsumerFactory"])
     fun consumerFactory(): ConsumerFactory<String, String> {
         val props = mutableMapOf<String, Any>()
 
@@ -43,7 +43,7 @@ class KafkaConfig(
         return DefaultKafkaConsumerFactory(props)
     }
     
-    @Bean
+    @Bean(name = ["accountKafkaListenerContainerFactory"])
     fun kafkaListenerContainerFactory(): ConcurrentKafkaListenerContainerFactory<String, String> {
         val factory = ConcurrentKafkaListenerContainerFactory<String, String>()
         factory.consumerFactory = consumerFactory()

@@ -22,7 +22,7 @@ import java.time.LocalTime
 
 
 @Configuration
-@EnableJpaRepositories(basePackages = ["com.trading.order.domain"])
+@EnableJpaRepositories(basePackages = ["com.trading.order"])
 @EnableTransactionManagement
 class OrderConfig {
     

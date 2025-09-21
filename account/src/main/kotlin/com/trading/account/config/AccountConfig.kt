@@ -12,10 +12,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement
 import java.math.BigDecimal
 
 @Configuration
-@EnableJpaRepositories(basePackages = [
-    "com.trading.account.domain",
-    "com.trading.account.infrastructure.persistence"
-])
+@EnableJpaRepositories(basePackages = ["com.trading.account"])
 @EnableTransactionManagement
 class AccountConfig {
     
