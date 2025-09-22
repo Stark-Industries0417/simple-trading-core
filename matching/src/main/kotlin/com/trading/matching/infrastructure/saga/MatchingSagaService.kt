@@ -198,10 +198,7 @@ class MatchingSagaService(
                 price = event.price,
                 reason = "Order cancelled by user"
             )
-            val savedMatching = matchingRepository.save(cancelledMatching)
-
-            val cancelledOutboxEvent = savedMatching.toFailedOutboxEvent(sagaId = event.sagaId)
-            matchingOutboxRepository.save(cancelledOutboxEvent)
+            matchingRepository.save(cancelledMatching)
 
             logger.debug("Successfully processed OrderCancelled event for sagaId: {}", event.sagaId)
             true
