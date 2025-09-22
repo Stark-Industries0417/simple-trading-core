@@ -21,7 +21,7 @@ class ReservationInfo private constructor(
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long? = null,
     
-    @Column(nullable = false, unique = true, length = 36)
+    @Column(name = "order_id", nullable = false, unique = true, length = 50)
     val orderId: String,
     
     @Column(nullable = false, length = 50)

@@ -114,21 +114,37 @@ class AccountService(
     }
     
     fun reserveFundsForOrder(
-        orderId: String, 
-        userId: String, 
+        orderId: String,
+        userId: String,
         symbol: String,
         quantity: BigDecimal,
         price: BigDecimal,
-        amount: BigDecimal, 
+        amount: BigDecimal,
     ): ReservationResult {
+        // 입력 검증을 먼저 수행하여 트랜잭션 내부에서 예외 발생 방지
+        if (amount <= BigDecimal.ZERO) {
+            return ReservationResult.InsufficientFunds(
+                required = amount,
+                available = BigDecimal.ZERO
+            )
+        }
+
         val account = accountRepository.findByUserIdWithLock(userId)
             ?: throw AccountNotFoundException("Account not found: $userId")
-        
-        val result = account.reserveCash(amount)
-        
+
+        val result = try {
+            account.reserveCash(amount)
+        } catch (e: IllegalArgumentException) {
+            // require() 검증 실패를 비즈니스 결과로 변환
+            return ReservationResult.InsufficientFunds(
+                required = amount,
+                available = account.getCashBalance()
+            )
+        }
+
         if (result is ReservationResult.Success) {
             accountRepository.save(account)
-            
+
             val reservationInfo = ReservationInfo.createForBuyOrder(
                 orderId = orderId,
                 userId = userId,
@@ -143,23 +159,39 @@ class AccountService(
     
     fun reserveStocksForOrder(
         orderId: String,
-        userId: String, 
-        symbol: String, 
+        userId: String,
+        symbol: String,
         quantity: BigDecimal,
         price: BigDecimal? = null,
         traceId: String
     ): StockReservationResult {
+        // 입력 검증을 먼저 수행
+        if (quantity <= BigDecimal.ZERO) {
+            return StockReservationResult.InsufficientShares(
+                required = quantity,
+                available = BigDecimal.ZERO
+            )
+        }
+
         val holding = stockHoldingRepository.findByUserIdAndSymbolWithLock(userId, symbol)
             ?: return StockReservationResult.InsufficientShares(
                 required = quantity,
                 available = BigDecimal.ZERO
             )
-        
-        val result = holding.reserveShares(quantity)
-        
+
+        val result = try {
+            holding.reserveShares(quantity)
+        } catch (e: IllegalArgumentException) {
+            // require() 검증 실패를 비즈니스 결과로 변환
+            return StockReservationResult.InsufficientShares(
+                required = quantity,
+                available = BigDecimal.ZERO  // 예외 발생 시 사용 가능 수량을 0으로 표시
+            )
+        }
+
         if (result is StockReservationResult.Success) {
             stockHoldingRepository.save(holding)
-            
+
             val reservationInfo = ReservationInfo.createForSellOrder(
                 orderId = orderId,
                 userId = userId,
@@ -170,7 +202,7 @@ class AccountService(
             )
             reservationInfoRepository.save(reservationInfo)
         }
-        
+
         return result
     }
 

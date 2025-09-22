@@ -23,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
 
 @Service
-@Transactional
 class AccountSagaService(
     private val accountService: AccountService,
     private val accountOutboxRepository: AccountOutboxRepository,
