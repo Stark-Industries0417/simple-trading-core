@@ -24,8 +24,7 @@ dependencies {
     // JSON Processing
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     
-    // DB
-    runtimeOnly(Dependencies.h2Database)
+    // DB - MySQL only (H2 removed for consistency)
     runtimeOnly(Dependencies.mysqlConnector)
 }
 

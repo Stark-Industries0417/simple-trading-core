@@ -1,12 +1,12 @@
 package com.trading.matching.application
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.trading.common.dto.cdc.account.AccountReservationFailedDto
 import com.trading.common.dto.cdc.account.AccountUpdateFailedDto
 import com.trading.common.dto.cdc.account.AccountUpdatedDto
 import com.trading.common.outbox.EventTypes.Account
 import com.trading.matching.domain.MatchingRepository
 import com.trading.matching.infrastructure.engine.MatchingEngineManager
-import com.trading.matching.infrastructure.outbox.MatchingStatus
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
@@ -37,6 +37,10 @@ class MatchingAccountConsumer(
                     val event = objectMapper.readValue(message, AccountUpdateFailedDto::class.java)
                     handleAccountUpdateFailed(event)
                 }
+                Account.RESERVATION_FAILED -> {
+                    val event = objectMapper.readValue(message, AccountReservationFailedDto::class.java)
+                    handleAccountReservationFailed(event)
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -66,6 +70,24 @@ class MatchingAccountConsumer(
             println("Trade failed due to account error - TradeId: ${event.tradeId}, " +
                     "FailureType: ${event.failureType}, Reason: ${event.reason}, " +
                     "ShouldRetry: ${event.shouldRetry}")
+        }
+    }
+
+    private fun handleAccountReservationFailed(event: AccountReservationFailedDto) {
+        // 예약 실패 처리 - 주문이 아직 매칭되지 않은 상태에서의 실패
+        println("Account reservation failed - OrderId: ${event.orderId}, " +
+                "UserId: ${event.userId}, Symbol: ${event.symbol}, " +
+                "FailureType: ${event.failureType}, Reason: ${event.reason}")
+
+        // 매칭 엔진에서 해당 주문 제거
+        val orderRemoved = matchingEngineManager.removeOrderFromBook(
+            orderId = event.orderId,
+            symbol = event.symbol
+        )
+
+        if (orderRemoved) {
+            println("Order removed from matching engine due to reservation failure - " +
+                    "OrderId: ${event.orderId}")
         }
     }
 

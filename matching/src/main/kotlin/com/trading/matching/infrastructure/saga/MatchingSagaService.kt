@@ -80,7 +80,8 @@ class MatchingSagaService(
                 acknowledgment.acknowledge()
                 logger.debug("Successfully processed and acknowledged event for sagaId: {}", sagaId)
             } else {
-                logger.error("Failed to process event for sagaId: {}, will retry", sagaId)
+                logger.error("Failed to process event for sagaId: {}", sagaId)
+                acknowledgment.acknowledge()
             }
 
         } catch (e: Exception) {
