@@ -1,7 +1,27 @@
 spring:
   application:
     name: matching-engine-service
-    
+
+  datasource:
+    url: ${DB_HOST:jdbc:mysql://localhost:3306/trading_core?useSSL=false&serverTimezone=UTC&createDatabaseIfNotExist=true}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:password}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQL8Dialect
+        format_sql: true
+        show_sql: false
+        jdbc:
+          batch_size: 20
+          batch_versioned_data: true
+        order_inserts: true
+        order_updates: true
+
 server:
   port: ${SERVER_PORT:8082}
   servlet:
@@ -23,7 +43,7 @@ kafka:
   
   consumer:
     group-id: matching-engine-group
-    auto-offset-reset: earliest
+    auto-offset-reset: ${OFFSET_RESET:earliest}
     enable-auto-commit: false
     isolation-level: read_committed
     max-poll-records: 100
