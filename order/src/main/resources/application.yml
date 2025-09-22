@@ -56,3 +56,10 @@ saga:
     account: 5
   scheduler:
     check-interval: 5000
+
+order:
+  timeout:
+    duration: PT5M
+    batch-size: 100
+    scheduler:
+      interval: 60000

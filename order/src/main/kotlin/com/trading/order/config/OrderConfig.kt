@@ -27,7 +27,7 @@ import java.time.LocalTime
 class OrderConfig {
     
     @Bean
-    @ConfigurationProperties(prefix = "trading.order")
+    @ConfigurationProperties(prefix = "order")
     fun orderProperties(): OrderProperties {
         return OrderProperties()
     }
@@ -62,29 +62,34 @@ class OrderConfig {
 
 data class OrderProperties(
     var supportedSymbols: Set<String> = setOf("AAPL", "GOOGL", "TSLA", "MSFT", "AMZN"),
-    
+
     var minQuantity: BigDecimal = BigDecimal("0.001"),
     var maxQuantity: BigDecimal = BigDecimal("10000.0"),
-    
+
     var priceDeviationLimit: BigDecimal = BigDecimal("0.10"), // ±10%
-    
-    var marketOpenTime: String = "09:00",
-    var marketCloseTime: String = "15:30",
-    var timezone: String = "Asia/Seoul",
-    
+
     var dailyOrderLimit: Int = 100,
-    
+
     var marketOrderBuffer: BigDecimal = BigDecimal("1.10"),
-    
+
     var defaultPageSize: Int = 20,
     var maxPageSize: Int = 100,
-    
-    var healthCheck: HealthCheckProperties = HealthCheckProperties()
+
+    var timeout: TimeoutProperties = TimeoutProperties(),
+
+    var healthCheck: HealthCheckProperties = HealthCheckProperties(),
 ) {
-    
-    fun getMarketOpenTime(): LocalTime = LocalTime.parse(marketOpenTime)
-    fun getMarketCloseTime(): LocalTime = LocalTime.parse(marketCloseTime)
-    
+
+    data class TimeoutProperties(
+        var duration: String = "PT5M",  // ISO-8601 duration format (5 minutes)
+        var batchSize: Int = 100,
+        var scheduler: SchedulerProperties = SchedulerProperties()
+    ) {
+        data class SchedulerProperties(
+            var interval: Long = 60000  // milliseconds (1 minute)
+        )
+    }
+
     data class HealthCheckProperties(
         var maxValidationFailureRate: Double = 0.1,
         var maxErrorRate: Double = 0.05,
