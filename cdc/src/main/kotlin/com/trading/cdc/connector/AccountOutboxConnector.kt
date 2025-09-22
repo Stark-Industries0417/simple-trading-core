@@ -77,7 +77,7 @@ class AccountOutboxConnector(
         )
 
         val message = objectMapper.writeValueAsString(event)
-        val partitionKey = event.symbol  // Symbol 기반 파티셔닝으로 순서 보장
+        val partitionKey = event.symbol
 
         kafkaTemplate.send("account.events", partitionKey, message)
     }
@@ -182,6 +182,17 @@ class AccountOutboxConnector(
             }
         }
 
+        // Timestamp 변환 - Debezium이 MySQL TIMESTAMP를 Long (milliseconds)로 변환
+        fun extractTimestamp(fieldName: String): String {
+            return try {
+                val timestampMillis = record.getInt64(fieldName)
+                java.time.Instant.ofEpochMilli(timestampMillis).toString()
+            } catch (e: Exception) {
+                logger.warn("Failed to parse $fieldName as timestamp, using current time")
+                java.time.Instant.now().toString()
+            }
+        }
+
         return AccountCreatedDto(
             eventId = record.getString("event_id"),
             sagaId = record.getString("saga_id"),
@@ -198,12 +209,11 @@ class AccountOutboxConnector(
             failureType = extractNullableString("failure_type"),
             reason = extractNullableString("reason"),
             shouldRetry = extractBoolean("should_retry"),
-            partitionKey = record.getString("partition_key"),
             status = record.getString("status"),
             processedAt = extractNullableString("processed_at"),
             errorMessage = extractNullableString("error_message"),
             retryCount = extractInt("retry_count"),
-            createdAt = record.getString("created_at")
+            createdAt = extractTimestamp("created_at")
         )
     }
 
@@ -246,6 +256,17 @@ class AccountOutboxConnector(
             }
         }
 
+        // Timestamp 변환 - Debezium이 MySQL TIMESTAMP를 Long (milliseconds)로 변환
+        fun extractTimestamp(fieldName: String): String {
+            return try {
+                val timestampMillis = record.getInt64(fieldName)
+                java.time.Instant.ofEpochMilli(timestampMillis).toString()
+            } catch (e: Exception) {
+                logger.warn("Failed to parse $fieldName as timestamp, using current time")
+                java.time.Instant.now().toString()
+            }
+        }
+
         return AccountUpdateFailedDto(
             eventId = record.getString("event_id"),
             sagaId = record.getString("saga_id"),
@@ -264,7 +285,7 @@ class AccountOutboxConnector(
             processedAt = extractNullableString("processed_at"),
             errorMessage = extractNullableString("error_message"),
             retryCount = extractInt("retry_count"),
-            createdAt = record.getString("created_at")
+            createdAt = extractTimestamp("created_at")
         )
     }
 
@@ -289,6 +310,17 @@ class AccountOutboxConnector(
             }
         }
 
+        // Timestamp 변환 - Debezium이 MySQL TIMESTAMP를 Long (milliseconds)로 변환
+        fun extractTimestamp(fieldName: String): String {
+            return try {
+                val timestampMillis = record.getInt64(fieldName)
+                java.time.Instant.ofEpochMilli(timestampMillis).toString()
+            } catch (e: Exception) {
+                logger.warn("Failed to parse $fieldName as timestamp, using current time")
+                java.time.Instant.now().toString()
+            }
+        }
+
         return AccountReservationFailedDto(
             eventId = record.getString("event_id"),
             sagaId = record.getString("saga_id"),
@@ -300,7 +332,7 @@ class AccountOutboxConnector(
             failureType = record.getString("failure_type"),
             reason = record.getString("reason") ?: "",
             shouldRetry = extractBoolean("should_retry"),
-            createdAt = record.getString("created_at")
+            createdAt = extractTimestamp("created_at")
         )
     }
 

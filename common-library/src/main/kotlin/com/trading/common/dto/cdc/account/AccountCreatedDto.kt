@@ -24,7 +24,6 @@ data class AccountCreatedDto(
     val failureType: String?,
     val reason: String?,
     val shouldRetry: Boolean,
-    val partitionKey: String,
     val status: String,
     val processedAt: String?,
     val errorMessage: String?,
