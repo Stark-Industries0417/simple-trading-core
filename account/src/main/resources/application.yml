@@ -10,11 +10,18 @@ spring:
     
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: update
     properties:
       hibernate:
         format_sql: true
         show_sql: false
+    defer-datasource-initialization: true  # Hibernate 초기화 후 SQL 실행
+
+  sql:
+    init:
+      mode: always
+      data-locations: classpath:data.sql
+      continue-on-error: false
         
   h2:
     console:
@@ -26,7 +33,7 @@ kafka:
   bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
   consumer:
     group-id: account-service-group
-    auto-offset-reset: earliest
+    auto-offset-reset: ${OFFSET_RESET:earliest}
     enable-auto-commit: false
     isolation-level: read_committed
     max-poll-records: 100
