@@ -1,7 +1,19 @@
 spring:
   application:
     name: cdc-module
-  
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        compression.type: gzip
+
   jackson:
     serialization:
       write-dates-as-timestamps: false
@@ -12,9 +24,9 @@ spring:
 # CDC Configuration
 cdc:
   database:
-    hostname: ${DB_HOST:localhost}
-    port: ${DB_PORT:3306}
-    name: ${DB_NAME:trading_core}  # 메인 애플리케이션 DB 이름
+    hostname: ${DB_URL:localhost}
+    port: ${DB_PORT}
+    name: ${DB_TABLE}
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:password}  # 메인 애플리케이션 비밀번호
   
