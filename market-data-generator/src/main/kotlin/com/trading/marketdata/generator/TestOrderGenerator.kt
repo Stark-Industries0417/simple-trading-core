@@ -16,12 +16,12 @@ import java.math.RoundingMode
 import kotlin.random.Random
 
 
-@Component
-@ConditionalOnProperty(
-    prefix = "test.order-generator",
-    name = ["enabled"],
-    havingValue = "true"
-)
+//@Component
+//@ConditionalOnProperty(
+//    prefix = "test.order-generator",
+//    name = ["enabled"],
+//    havingValue = "true"
+//)
 class TestOrderGenerator(
     private val marketDataGenerator: MarketDataGenerator,
     private val restTemplate: RestTemplate,
