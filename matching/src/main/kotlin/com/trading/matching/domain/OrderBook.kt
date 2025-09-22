@@ -65,21 +65,24 @@ class OrderBook(
     }
     
     fun processLimitOrder(order: OrderCreatedDto): List<Trade> {
+        println("[OrderBook-$symbol] Processing LIMIT order: ${order.orderId}, side=${order.side}, price=${order.price}, qty=${order.quantity}")
+        println("[OrderBook-$symbol] Current state: bids=${buyOrders.size} levels, asks=${sellOrders.size} levels, total=${orderMap.size} orders")
+
         val trades = mutableListOf<Trade>()
         var remainingQuantity = order.quantity
-        
+
         val oppositeBook = if (order.side == OrderSide.BUY) sellOrders else buyOrders
         val sameBook = if (order.side == OrderSide.BUY) buyOrders else sellOrders
-        
+
         while (remainingQuantity > BigDecimal.ZERO && canMatch(order, oppositeBook)) {
             val bestPrice = oppositeBook.firstKey()
             val ordersAtPrice = oppositeBook[bestPrice]!!
             
             while (remainingQuantity > BigDecimal.ZERO && ordersAtPrice.isNotEmpty()) {
-                val matchingOrder = ordersAtPrice.peek()
-                
+                val matchingOrder = ordersAtPrice.poll() ?: break  // poll first to remove from queue
+
                 val tradeQuantity = minOf(remainingQuantity, matchingOrder.quantity)
-                
+
                 trades.add(Trade(
                     tradeId = UUID.randomUUID().toString(),
                     symbol = symbol,
@@ -91,17 +94,17 @@ class OrderBook(
                     quantity = tradeQuantity,
                     timestamp = System.currentTimeMillis()
                 ))
-                
-                remainingQuantity -= tradeQuantity
-                val updatedQuantity = matchingOrder.quantity - tradeQuantity
-                ordersAtPrice.poll()
 
-                if (updatedQuantity == BigDecimal.ZERO) {
-                    orderMap.remove(matchingOrder.orderId)
-                } else {
+                remainingQuantity = remainingQuantity.minus(tradeQuantity)
+                val updatedQuantity = matchingOrder.quantity.minus(tradeQuantity)
+
+                if (updatedQuantity > BigDecimal.ZERO) {
+                    // 부분 체결: 남은 수량으로 새 주문 생성하여 큐 앞에 다시 추가
                     val updatedOrder = matchingOrder.copy(quantity = updatedQuantity)
                     ordersAtPrice.offer(updatedOrder)
                     orderMap[matchingOrder.orderId] = updatedOrder
+                } else {
+                    orderMap.remove(matchingOrder.orderId)
                 }
             }
             
@@ -113,8 +116,12 @@ class OrderBook(
         if (remainingQuantity > BigDecimal.ZERO) {
             val remainingOrder = order.copy(quantity = remainingQuantity)
             addToOrderBook(remainingOrder, sameBook)
+            println("[OrderBook-$symbol] Added unmatched order to book: ${remainingOrder.orderId}, remaining qty=${remainingQuantity}")
         }
-        
+
+        println("[OrderBook-$symbol] After processing: bids=${buyOrders.size} levels, asks=${sellOrders.size} levels, total=${orderMap.size} orders")
+        println("[OrderBook-$symbol] Trades executed: ${trades.size}")
+
         return trades
     }
     

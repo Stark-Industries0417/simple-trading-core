@@ -13,6 +13,7 @@ import com.trading.matching.domain.MatchingRepository
 import com.trading.matching.infrastructure.engine.MatchingEngineManager
 import com.trading.matching.infrastructure.outbox.MatchingOutboxEvent
 import com.trading.matching.infrastructure.outbox.MatchingOutboxRepository
+import com.trading.matching.infrastructure.outbox.MatchingStatus
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -116,15 +117,15 @@ class MatchingSagaService(
                     OrderType.LIMIT -> {
                         logger.info("Limit order {} placed in order book, waiting for match", event.orderId)
 
-                        val pendingMatching = Matching.create(
-                            buyOrderId = if (event.side == OrderSide.BUY) event.orderId else "",
-                            sellOrderId = if (event.side == OrderSide.BUY) "" else event.orderId,
-                            buyUserId = if (event.side == OrderSide.BUY) event.userId else "",
-                            sellUserId = if (event.side == OrderSide.BUY) "" else event.userId,
+                        val pendingMatching = Matching.createUnmatched(
+                            orderId = event.orderId,
+                            userId = event.userId,
                             symbol = event.symbol,
+                            side = event.side,
                             quantity = event.quantity,
                             price = event.price ?: BigDecimal.ZERO,
-                            uuidGenerator = uuidGenerator
+                            uuidGenerator = uuidGenerator,
+                            status = MatchingStatus.PENDING
                         )
                         matchingRepository.save(pendingMatching)
                         val noMatchEvent = MatchingOutboxEvent.createNoMatchEvent(
@@ -231,15 +232,15 @@ class MatchingSagaService(
         price: BigDecimal?,
         reason: String
     ): Matching {
-        val matching = Matching.create(
-            buyOrderId = if (side == OrderSide.BUY) orderId else "",
-            sellOrderId = if (side == OrderSide.BUY) "" else orderId,
-            buyUserId = if (side == OrderSide.BUY) userId else "",
-            sellUserId = if (side == OrderSide.BUY) "" else userId,
+        val matching = Matching.createUnmatched(
+            orderId = orderId,
+            userId = userId,
             symbol = symbol,
+            side = side,
             quantity = quantity,
             price = price ?: BigDecimal.ZERO,
-            uuidGenerator = uuidGenerator
+            uuidGenerator = uuidGenerator,
+            status = MatchingStatus.PENDING
         )
         matching.markAsFailed(reason)
         return matching

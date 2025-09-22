@@ -1,5 +1,6 @@
 package com.trading.matching.domain
 
+import com.trading.common.dto.order.OrderSide
 import com.trading.common.util.UUIDv7Generator
 import com.trading.matching.infrastructure.outbox.MatchingOutboxEvent
 import com.trading.matching.infrastructure.outbox.MatchingStatus
@@ -21,16 +22,16 @@ import java.time.Instant
 )
 class Matching private constructor(
     @Id
-    @Column(length = 36)
+    @Column(length = 50)
     val id: String,
 
-    @Column(nullable = false, length = 36, unique = true)
+    @Column(nullable = false, length = 50, unique = true)
     val tradeId: String,
 
-    @Column(nullable = false, length = 36)
+    @Column(nullable = false, length = 50)
     val buyOrderId: String,
 
-    @Column(nullable = false, length = 36)
+    @Column(nullable = false, length = 50)
     val sellOrderId: String,
 
     @Column(nullable = false, length = 50)
@@ -101,6 +102,45 @@ class Matching private constructor(
                 symbol = symbol.uppercase(),
                 quantity = quantity,
                 price = price
+            )
+        }
+
+        /**
+         * 체결되지 않은 주문이나 실패한 주문을 위한 팩토리 메서드
+         * 한쪽만 주문 정보가 있는 경우 사용 (예: 시장가 주문 실패, 지정가 주문 대기)
+         */
+        fun createUnmatched(
+            orderId: String,
+            userId: String,
+            symbol: String,
+            side: OrderSide,
+            quantity: BigDecimal,
+            price: BigDecimal,
+            uuidGenerator: UUIDv7Generator,
+            status: MatchingStatus = MatchingStatus.PENDING
+        ): Matching {
+            require(orderId.isNotBlank()) { "Order ID cannot be blank" }
+            require(userId.isNotBlank()) { "User ID cannot be blank" }
+            require(symbol.isNotBlank()) { "Symbol cannot be blank" }
+            require(quantity > BigDecimal.ZERO) { "Quantity must be positive" }
+            require(price >= BigDecimal.ZERO) { "Price cannot be negative" }
+
+            val tradeId = uuidGenerator.generateTradeId()
+
+            // 체결되지 않은 주문의 경우 반대편을 "UNMATCHED"로 표시
+            val unmatchedPlaceholder = "UNMATCHED"
+
+            return Matching(
+                id = uuidGenerator.generateEventId(),
+                tradeId = tradeId,
+                buyOrderId = if (side == OrderSide.BUY) orderId else unmatchedPlaceholder,
+                sellOrderId = if (side == OrderSide.SELL) orderId else unmatchedPlaceholder,
+                buyUserId = if (side == OrderSide.BUY) userId else unmatchedPlaceholder,
+                sellUserId = if (side == OrderSide.SELL) userId else unmatchedPlaceholder,
+                symbol = symbol.uppercase(),
+                quantity = quantity,
+                price = price,
+                status = status
             )
         }
     }
