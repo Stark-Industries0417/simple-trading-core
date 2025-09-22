@@ -32,7 +32,7 @@ class OrderSagaConnector(
             put(ProducerConfig.RETRIES_CONFIG, 3)
             put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true)
             put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 5)
-            put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "snappy")
+            put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "gzip")
             put(ProducerConfig.LINGER_MS_CONFIG, 10)
             put(ProducerConfig.BATCH_SIZE_CONFIG, 16384)
         }
