@@ -113,6 +113,22 @@ class Order private constructor(
             ).withContext("orderId", id).withContext("currentStatus", status.name)
         }
 
+    fun timeout(reason: String = "Order timeout"): Order =
+        try {
+            require(status == OrderStatus.CREATED) {
+                "Only CREATED orders can be timed out, current status: $status"
+            }
+            this.apply {
+                status = OrderStatus.TIMEOUT
+                updatedAt = Instant.now()
+                cancellationReason = reason
+            }
+        } catch(ex: IllegalArgumentException) {
+            throw OrderStateException(
+                ex.message ?: "Cannot timeout order in current state", ex
+            ).withContext("orderId", id).withContext("currentStatus", status.name)
+        }
+
     fun reject(reason: String): Order {
         require(status == OrderStatus.PENDING) {
             "Only pending orders can be rejected"

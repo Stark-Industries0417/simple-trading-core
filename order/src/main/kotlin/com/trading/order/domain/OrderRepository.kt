@@ -12,15 +12,15 @@ import java.time.Instant
 
 @Repository
 interface OrderRepository : JpaRepository<Order, String> {
-    
+
     fun findByUserIdOrderByCreatedAtDesc(userId: String, pageable: Pageable): Page<Order>
-    
+
     fun findByIdAndUserId(orderId: String, userId: String): Order?
-    
+
     @Query("""
-        SELECT o 
-        FROM Order o 
-        WHERE o.userId = :userId AND o.status 
+        SELECT o
+        FROM Order o
+        WHERE o.userId = :userId AND o.status
         IN :statuses ORDER BY o.createdAt DESC
     """)
     fun findActiveOrdersByUserId(
@@ -28,12 +28,12 @@ interface OrderRepository : JpaRepository<Order, String> {
         @Param("statuses") statuses: List<OrderStatus> = listOf(OrderStatus.PENDING, OrderStatus.PARTIALLY_FILLED),
         pageable: Pageable
     ): Page<Order>
-    
+
     @Query("""
-        SELECT COUNT(o) 
-        FROM Order o 
-        WHERE o.userId = :userId 
-        AND o.createdAt >= :startOfDay 
+        SELECT COUNT(o)
+        FROM Order o
+        WHERE o.userId = :userId
+        AND o.createdAt >= :startOfDay
         AND o.createdAt < :endOfDay
     """)
     fun countOrdersByUserIdAndDateRange(
@@ -41,4 +41,17 @@ interface OrderRepository : JpaRepository<Order, String> {
         @Param("startOfDay") startOfDay: Instant,
         @Param("endOfDay") endOfDay: Instant
     ): Long
+
+    @Query("""
+        SELECT o
+        FROM Order o
+        WHERE o.status = :status
+        AND o.createdAt < :timeoutThreshold
+        ORDER BY o.createdAt ASC
+    """)
+    fun findOrdersForTimeout(
+        @Param("status") status: OrderStatus = OrderStatus.CREATED,
+        @Param("timeoutThreshold") timeoutThreshold: Instant,
+        pageable: Pageable
+    ): List<Order>
 }
