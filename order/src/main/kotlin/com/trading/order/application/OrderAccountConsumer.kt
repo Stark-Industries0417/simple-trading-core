@@ -12,7 +12,7 @@ import org.springframework.transaction.annotation.Transactional
 
 @Component
 @Transactional
-class OrderConsumer(
+class OrderAccountConsumer(
     private val orderRepository: OrderRepository,
     private val objectMapper: ObjectMapper
 ) {
