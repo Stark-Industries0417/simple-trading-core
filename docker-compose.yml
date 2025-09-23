@@ -69,32 +69,6 @@ services:
     networks:
       - trading-network
 
-  adminer:
-    image: adminer:latest
-    container_name: trading-adminer
-    ports:
-      - "8090:8080"
-    networks:
-      - trading-network
-
-  # Order Service - .env 파일의 환경변수를 자동으로 사용
-#  order-service:
-#    build:
-#      context: ./order
-#      dockerfile: Dockerfile
-#    container_name: trading-order-service
-#    depends_on:
-#      - mysql
-#      - kafka
-#    ports:
-#      - "8081:8081"
-#    environment:
-#      # .env 파일에서 값을 가져옴
-#      DB_URL: ${DB_HOST}
-#      DB_USERNAME: ${DB_USERNAME}
-#      DB_PASSWORD: ${DB_PASSWORD}
-#    networks:
-#      - trading-network
 
 volumes:
   mysql_data:
