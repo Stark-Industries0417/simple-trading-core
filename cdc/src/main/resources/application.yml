@@ -25,8 +25,8 @@ spring:
 cdc:
   database:
     hostname: ${DB_URL:localhost}
-    port: ${DB_PORT}
-    name: ${DB_TABLE}
+    port: ${DB_PORT:3306}
+    name: ${DB_TABLE:trading_core}
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:password}  # 메인 애플리케이션 비밀번호
   

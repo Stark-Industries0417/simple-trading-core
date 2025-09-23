@@ -257,6 +257,21 @@ management:
       simple:
         enabled: true
         mode: step
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        kafka.consumer.fetch.manager.records.lag: true
+        kafka.producer.record.send.total: true
+      percentiles:
+        http.server.requests: 0.5, 0.95, 0.99
+        kafka.consumer.fetch.manager.records.lag: 0.5, 0.95, 0.99
+    enable:
+      jvm: true
+      process: true
+      system: true
+      tomcat: true
+      kafka: true
+      logback: true
 
 # 서버 설정
 server:
