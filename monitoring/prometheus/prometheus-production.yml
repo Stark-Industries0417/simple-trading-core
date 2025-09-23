@@ -1,0 +1,107 @@
+# Prometheus 설정 - Production (Multi-Server)
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+  # 운영 환경 레이블
+  external_labels:
+    monitor: 'trading-monitor'
+    environment: 'production'  # 환경별로 변경
+    region: 'ap-northeast-2'   # AWS 리전 예시
+
+# Alertmanager 설정 (운영에서는 필수)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager.your-domain.com:9093  # 실제 AlertManager 주소
+
+# 스크래핑 대상 설정 - 실제 서버 주소 사용
+scrape_configs:
+  # Prometheus 자체 모니터링
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # Order Service - 실제 서버 주소
+  - job_name: 'order-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets:
+        - 'order-server-1.your-domain.com:8081'  # 주 서버
+        labels:
+          service: 'order'
+          module: 'order'
+
+  # Matching Service - 실제 서버 주소
+  - job_name: 'matching-service'
+    metrics_path: '/matching/actuator/prometheus'  # context-path 포함
+    static_configs:
+      - targets:
+        - 'matching-server-1.your-domain.com:8082'
+        - 'matching-server-2.your-domain.com:8082'
+        labels:
+          service: 'matching'
+          module: 'matching'
+    # 헬스체크 설정 추가
+    scrape_interval: 5s  # 매칭 엔진은 더 자주 모니터링
+    scrape_timeout: 3s
+
+  # Account Service - 실제 서버 주소
+  - job_name: 'account-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets:
+        - 'account-server-1.your-domain.com:8083'
+        - 'account-server-2.your-domain.com:8083'
+        labels:
+          service: 'account'
+          module: 'account'
+
+  # Market Data Generator - 실제 서버 주소
+  - job_name: 'market-data-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets:
+        - 'market-data-server.your-domain.com:8084'
+        labels:
+          service: 'market-data'
+          module: 'market-data'
+
+  # Kafka Cluster 모니터링
+  - job_name: 'kafka'
+    static_configs:
+      - targets:
+        - 'kafka-1.your-domain.com:9308'  # Kafka Exporter
+        - 'kafka-2.your-domain.com:9308'
+        - 'kafka-3.your-domain.com:9308'
+        labels:
+          service: 'kafka'
+          type: 'message-broker'
+
+  # MySQL/RDS 모니터링
+  - job_name: 'mysql'
+    static_configs:
+      - targets:
+        - 'mysql-exporter.your-domain.com:9104'
+        labels:
+          service: 'mysql'
+          type: 'database'
+
+  # AWS CloudWatch Exporter (AWS 사용 시)
+  # - job_name: 'cloudwatch'
+  #   static_configs:
+  #     - targets:
+  #       - 'cloudwatch-exporter.your-domain.com:9106'
+  #       labels:
+  #         service: 'aws'
+  #         type: 'cloud-metrics'
+
+# 파일 기반 서비스 디스커버리 (동적 서버 추가/제거)
+# - job_name: 'file_sd_services'
+#   file_sd_configs:
+#     - files:
+#       - '/etc/prometheus/targets/*.yml'
+#       refresh_interval: 30s

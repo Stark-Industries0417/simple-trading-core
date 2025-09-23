@@ -1,0 +1,60 @@
+# 각 모듈에 추가할 운영 환경 모니터링 설정
+# application-production.yml 또는 application-monitoring.yml
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+      # 보안을 위한 별도 포트 사용 (선택사항)
+      # port: 9090  # 메트릭 전용 포트
+
+  endpoint:
+    health:
+      show-details: when-authorized  # 인증된 사용자만 상세 정보
+      show-components: when-authorized
+      probes:
+        enabled: true
+    prometheus:
+      enabled: true
+
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      environment: ${ENVIRONMENT:production}
+      server: ${HOSTNAME:unknown}
+      region: ${AWS_REGION:ap-northeast-2}
+    export:
+      prometheus:
+        enabled: true
+        step: 1m  # 메트릭 수집 주기
+        descriptions: true
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        matching.latency: true
+      percentiles:
+        http.server.requests: 0.5, 0.95, 0.99
+      sla:
+        http.server.requests: 100ms, 500ms, 1s
+
+# Spring Security로 메트릭 엔드포인트 보호 (선택사항)
+spring:
+  security:
+    user:
+      name: ${METRICS_USER:prometheus}
+      password: ${METRICS_PASSWORD:secure-password}
+      roles: ACTUATOR
+
+# 메트릭 엔드포인트 접근 제한
+server:
+  # 메인 애플리케이션 포트
+  port: 8080
+
+# 별도 관리 포트 사용 시
+# management:
+#   server:
+#     port: 9090  # 메트릭 전용 포트
+#     ssl:
+#       enabled: false  # 내부 네트워크만 사용 시
