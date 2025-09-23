@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory
 import com.trading.matching.domain.OrderBook
 import com.trading.matching.domain.Trade
 import com.trading.matching.infrastructure.resilience.CircuitBreaker
+import com.trading.matching.infrastructure.monitoring.MatchingMetrics
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
@@ -15,7 +16,8 @@ import java.util.concurrent.atomic.AtomicLong
 
 
 class MatchingWorker(
-    val id: Int
+    val id: Int,
+    private val matchingMetrics: MatchingMetrics
 ) : Runnable {
     
     companion object {
@@ -175,12 +177,27 @@ class MatchingWorker(
             orders.forEach { orderWithContext ->
                 processOrderInternal(orderBook, orderWithContext)
             }
+
+            // Update OrderBook size metrics
+            matchingMetrics.updateOrderBookSize(
+                symbol,
+                "BUY",
+                orderBook.getBuyOrderCount()
+            )
+            matchingMetrics.updateOrderBookSize(
+                symbol,
+                "SELL",
+                orderBook.getSellOrderCount()
+            )
         }
     }
     
     private fun processCancellations() {
         val cancellations = mutableListOf<CancelRequest>()
         removeQueue.drainTo(cancellations, 10)
+
+        matchingMetrics.updateQueueSize("order_queue_$id", orderQueue.size)
+        matchingMetrics.updateQueueSize("cancel_queue_$id", removeQueue.size)
         
         cancellations.forEach { request ->
             val orderBook = orderBooks[request.symbol]
@@ -210,6 +227,7 @@ class MatchingWorker(
     }
     
     private fun processOrderInternal(orderBook: OrderBook, order: OrderCreatedDto) {
+        val startTime = System.currentTimeMillis()
         try {
             logger.debug(
                 "Processing order",
@@ -242,9 +260,20 @@ class MatchingWorker(
             if (trades.isNotEmpty()) {
                 recentTrades
                     .computeIfAbsent(order.orderId) { mutableListOf() }.addAll(trades)
+
+                trades.forEach { trade ->
+                    matchingMetrics.recordTradeExecuted(
+                        order.symbol,
+                        trade.quantity.toLong()
+                    )
+                }
             }
             tradesExecuted.addAndGet(trades.size.toLong())
             ordersProcessed.incrementAndGet()
+
+            val duration = System.currentTimeMillis() - startTime
+            matchingMetrics.recordMatchingAttempt(order.symbol, trades.isNotEmpty())
+            matchingMetrics.recordMatchingLatency(duration, order.symbol)
         } catch (e: Exception) {
             logger.error(
                 "Error processing order",

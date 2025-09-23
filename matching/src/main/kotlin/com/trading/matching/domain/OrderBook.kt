@@ -174,6 +174,14 @@ class OrderBook(
             timestamp = System.currentTimeMillis()
         )
     }
+
+    fun getBuyOrderCount(): Int {
+        return buyOrders.values.sumOf { it.size }
+    }
+
+    fun getSellOrderCount(): Int {
+        return sellOrders.values.sumOf { it.size }
+    }
 }
 
 data class Trade(

@@ -4,6 +4,7 @@ import com.trading.common.dto.cdc.order.OrderCreatedDto
 import org.slf4j.LoggerFactory
 import com.trading.matching.domain.Trade
 import com.trading.matching.infrastructure.resilience.BackpressureMonitor
+import com.trading.matching.infrastructure.monitoring.MatchingMetrics
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import java.util.concurrent.TimeUnit
@@ -17,7 +18,8 @@ import kotlin.math.absoluteValue
 class MatchingEngineManager(
     @Value("\${matching.thread-pool-size:16}")
     private val threadPoolSize: Int = Runtime.getRuntime().availableProcessors() * 2,
-    private val backpressureMonitor: BackpressureMonitor
+    private val backpressureMonitor: BackpressureMonitor,
+    private val matchingMetrics: MatchingMetrics
 ) {
     companion object {
         private val logger = LoggerFactory.getLogger(MatchingEngineManager::class.java)
@@ -37,7 +39,7 @@ class MatchingEngineManager(
         )
         
         workers = Array(threadPoolSize) { workerId ->
-            MatchingWorker(workerId)
+            MatchingWorker(workerId, matchingMetrics)
         }
         
         workerThreads = Array(threadPoolSize) { index ->
