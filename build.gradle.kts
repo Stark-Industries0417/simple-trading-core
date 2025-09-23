@@ -63,6 +63,7 @@ subprojects {
         
         // Metrics - 여러 모듈에서 사용
         implementation("io.micrometer:micrometer-core")
+        implementation("io.micrometer:micrometer-registry-prometheus")
         
         // 테스트
         testImplementation(Dependencies.springBootStarterTest) {
